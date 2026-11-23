@@ -1,0 +1,135 @@
+# Compile check for all iOS development (PLAN.md section 7): generate the Xcode project
+# with XcodeGen, build the app and its three extensions for the simulator without
+# signing, run the unit tests, and compile a Release build for devices (also unsigned)
+# with and without the Reels-free Instagram feature. Needs no secrets.
+name: ios-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # App Store Connect requires the iOS 26 SDK or later; select-xcode.sh enforces it.
+  XCODE_VERSION: "26.6"
+  XCODEGEN_VERSION: "2.48.0"
+  XCODEGEN_SHA256: "620c9f0dc10849f94728ab5df52d225ebab8187439dd6fee1925e59e80dff892"
+
+jobs:
+  simulator:
+    name: Simulator build and unit tests
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: bash ios/scripts/select-xcode.sh "$XCODE_VERSION"
+
+      - name: Install XcodeGen
+        run: bash ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$XCODEGEN_SHA256"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Pick a simulator
+        id: simulator
+        run: echo "udid=$(bash ios/scripts/pick-simulator.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Build app, extensions and tests (simulator, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project ios/ConcentrationMaxx.xcodeproj \
+            -scheme ConcentrationMaxx \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project ios/ConcentrationMaxx.xcodeproj \
+            -scheme ConcentrationMaxx \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/UnitTests.xcresult" \
+            | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-results
+          path: ${{ runner.temp }}/UnitTests.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
+  device:
+    name: Release device build (unsigned, ${{ matrix.variant }})
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: default
+            feature_flags: REELS_FREE
+          - variant: reels-free compiled out
+            feature_flags: ""
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        run: bash ios/scripts/select-xcode.sh "$XCODE_VERSION"
+
+      - name: Install XcodeGen
+        run: bash ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$XCODEGEN_SHA256"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Build for generic iOS device (Release, unsigned)
+        env:
+          FEATURE_FLAGS: ${{ matrix.feature_flags }}
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/ConcentrationMaxx.xcodeproj \
+            -scheme ConcentrationMaxx \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CMX_FEATURE_FLAGS="$FEATURE_FLAGS" \
+            | xcbeautify --renderer github-actions
+
+      - name: Check the built app bundle
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/ConcentrationMaxx.app"
+          plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Info.plist"; }
+          echo "App: $(plist "$app" CFBundleIdentifier) $(plist "$app" CFBundleShortVersionString) ($(plist "$app" CFBundleVersion))"
+          test -f "$app/PrivacyInfo.xcprivacy"
+          for ext in CMXMonitor CMXShieldConfig CMXShieldAction; do
+            appex="$app/PlugIns/$ext.appex"
+            test -d "$appex" || { echo "::error::$ext.appex is not embedded in PlugIns"; exit 1; }
+            echo "$ext: $(plist "$appex" CFBundleIdentifier) -> $(plist "$appex" NSExtension:NSExtensionPointIdentifier)"
+            test "$(plist "$appex" CFBundleVersion)" = "$(plist "$app" CFBundleVersion)"
+            test "$(plist "$appex" CFBundleShortVersionString)" = "$(plist "$app" CFBundleShortVersionString)"
+            test "$(plist "$appex" CMXAppGroupID)" = "$(plist "$app" CMXAppGroupID)"
+          done
+          echo "App Group: $(plist "$app" CMXAppGroupID)"

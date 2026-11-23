@@ -1,0 +1,220 @@
+# XcodeGen spec for ConcentrationMaxx. The .xcodeproj is generated from this file in CI
+# (`xcodegen generate` inside ios/) and is never committed. XcodeGen also writes every
+# target's Info.plist and .entitlements into ios/Generated/, so this file is the single
+# source of truth for bundle IDs, the App Group, capabilities and Info.plist keys.
+
+name: ConcentrationMaxx
+
+options:
+  bundleIdPrefix: com.malachitopp
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    # ------------------------------------------------------------------------------
+    # The bundle ID prefix lives here and only here. Change it before registering the
+    # IDs with Apple: the four targets, the App Group and the Info.plists derive from it.
+    #   App:                 $(CMX_BUNDLE_ID)
+    #   Monitor extension:   $(CMX_BUNDLE_ID).monitor
+    #   Shield configuration $(CMX_BUNDLE_ID).shieldconfig
+    #   Shield action:       $(CMX_BUNDLE_ID).shieldaction
+    #   App Group:           group.$(CMX_BUNDLE_ID)
+    CMX_BUNDLE_ID: com.malachitopp.concentrationmaxx
+    CMX_APP_GROUP: group.$(CMX_BUNDLE_ID)
+    # ------------------------------------------------------------------------------
+    # Account server. Empty means device-only accounts (PLAN.md section 5).
+    # testflight.yml passes the repository variable API_BASE_URL on the command line.
+    API_BASE_URL: ""
+    # Compile-time features. Building with CMX_FEATURE_FLAGS="" compiles the
+    # Reels-free Instagram feature out (PLAN.md section 10, beta review fallback).
+    CMX_FEATURE_FLAGS: REELS_FREE
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(CMX_FEATURE_FLAGS)
+    MARKETING_VERSION: "1.0.0"
+    # testflight.yml overrides this with the workflow run number.
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG $(CMX_FEATURE_FLAGS)
+
+# Target-level settings shared by every target. They must be set per target because
+# XcodeGen's iOS preset sets TARGETED_DEVICE_FAMILY on each target, which would
+# otherwise override a project-level value.
+settingGroups:
+  cmxTarget:
+    base:
+      TARGETED_DEVICE_FAMILY: "1"
+      SWIFT_VERSION: "5.0"
+      SWIFT_STRICT_CONCURRENCY: minimal
+  cmxExtension:
+    groups: [cmxTarget]
+    base:
+      # Extensions are embedded in the app; they must not be installed as separate
+      # archive products, or the archive is no longer an iOS App archive.
+      SKIP_INSTALL: YES
+      APPLICATION_EXTENSION_API_ONLY: YES
+
+targets:
+  ConcentrationMaxx:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: App/Core
+      - path: Shared
+      - path: App/Resources
+    info:
+      path: Generated/ConcentrationMaxx-Info.plist
+      properties:
+        CFBundleDisplayName: ConcentrationMaxx
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+        CMXAppGroupID: $(CMX_APP_GROUP)
+        CMXAPIBaseURL: $(API_BASE_URL)
+    entitlements:
+      path: Generated/ConcentrationMaxx.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - $(CMX_APP_GROUP)
+    settings:
+      groups: [cmxTarget]
+      base:
+        PRODUCT_NAME: ConcentrationMaxx
+        PRODUCT_BUNDLE_IDENTIFIER: $(CMX_BUNDLE_ID)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: CMXMonitor
+      - target: CMXShieldConfig
+      - target: CMXShieldAction
+
+  # DeviceActivityMonitor extension: lifts the shield when the block's interval ends,
+  # even when the app is closed (end path 1 of 3, PLAN.md section 3).
+  CMXMonitor:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Extensions/DeviceActivityMonitor
+      - path: Shared
+    info:
+      path: Generated/CMXMonitor-Info.plist
+      properties:
+        CFBundleDisplayName: ConcentrationMaxx Monitor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CMXAppGroupID: $(CMX_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.deviceactivity.monitor-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DeviceActivityMonitorExtension
+    entitlements:
+      path: Generated/CMXMonitor.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - $(CMX_APP_GROUP)
+    settings:
+      groups: [cmxExtension]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CMX_BUNDLE_ID).monitor
+
+  # ShieldConfiguration extension: the "Blocked until 17:30" screen over blocked apps.
+  CMXShieldConfig:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Extensions/ShieldConfiguration
+      - path: Shared
+    info:
+      path: Generated/CMXShieldConfig-Info.plist
+      properties:
+        CFBundleDisplayName: ConcentrationMaxx Shield
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CMXAppGroupID: $(CMX_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettingsUI.shield-configuration-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldConfigurationExtension
+    entitlements:
+      path: Generated/CMXShieldConfig.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - $(CMX_APP_GROUP)
+    settings:
+      groups: [cmxExtension]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CMX_BUNDLE_ID).shieldconfig
+
+  # ShieldAction extension: handles the shield's buttons and lifts an expired block
+  # if the monitor missed it (end path 3 of 3).
+  CMXShieldAction:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Extensions/ShieldAction
+      - path: Shared
+    info:
+      path: Generated/CMXShieldAction-Info.plist
+      properties:
+        CFBundleDisplayName: ConcentrationMaxx Shield Action
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CMXAppGroupID: $(CMX_APP_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ManagedSettings.shield-action-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShieldActionExtension
+    entitlements:
+      path: Generated/CMXShieldAction.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - $(CMX_APP_GROUP)
+    settings:
+      groups: [cmxExtension]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CMX_BUNDLE_ID).shieldaction
+
+  # Logic tests: they compile the shared and core sources directly and need no host
+  # app, so they run in the simulator without signing, entitlements or Screen Time.
+  ConcentrationMaxxTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      - path: Shared
+      - path: App/Core
+    settings:
+      groups: [cmxTarget]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(CMX_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ConcentrationMaxx:
+    build:
+      targets:
+        ConcentrationMaxx: all
+        ConcentrationMaxxTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ConcentrationMaxxTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

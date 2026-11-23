@@ -22,7 +22,7 @@ Plan written 2026-11-23. Section 10 lists the open risks that only a test on a r
 These are platform rules, not choices. Each one shapes the design.
 
 1. **Apps are picked, not hardcoded.** iOS hides other apps' identities from us. During setup each person picks their apps in Apple's own picker, once. The setup screen lists what to tick (TikTok, Instagram, X, Reddit, Snapchat, then messaging apps).
-2. **TestFlight needs Apple's approval for this API.** The "Family Controls (Distribution)" entitlement must be requested per bundle ID, and we have four. Developers report waits from a few days to over a month in 2026. Nothing reaches TestFlight until it is granted, so this is the first thing to do (section 9).
+2. **TestFlight needs Apple's approval for this API.** The "Family Controls (Distribution)" entitlement is requested once for the whole developer team, through a single form (no bundle IDs, no justification text). Once it is assigned to the team, the Family Controls capability still has to be enabled on each of the four App IDs. The approval time is unknown: Apple's form does not say whether the grant is instant or reviewed (under the older per-bundle-ID process developers reported waits from a few days to over a month). Nothing reaches TestFlight until it is granted, so this is the first thing to do (section 9).
 3. **Blocks are at least 15 minutes.** The scheduling API rejects shorter intervals.
 4. **An app cannot switch on Do Not Disturb or mute other apps' notifications.** Hence the Shortcuts action above.
 5. **A determined person can still get out.** Settings → Screen Time lets the phone's owner revoke the app's access with the device passcode. Strict mode (section 4) closes the cheaper exits: deleting the app and changing the clock.
@@ -166,7 +166,7 @@ server/
 
 In order. Step 1 has the longest wait, so start it first.
 
-1. **Apple Developer portal:** register the four bundle IDs and the App Group from section 3, with the App Groups and Family Controls capabilities. Then submit a **Family Controls (Distribution)** request for each of the four IDs at <https://developer.apple.com/contact/request/family-controls-distribution>.
+1. **Apple Developer portal:** first accept the latest Program License Agreement at <https://developer.apple.com/account>; until it is accepted, Certificates/Identifiers/Profiles, App Store Connect and the App Store Connect API stay locked. Then submit the single team-level **Family Controls (Distribution)** request at <https://developer.apple.com/contact/request/family-controls-distribution> (one form for the whole team; the approval time is unknown). Register the four bundle IDs and the App Group from section 3, with the App Groups and Family Controls capabilities, and once the distribution entitlement is assigned to the team, make sure Family Controls is enabled on each of the four App IDs.
 2. **App Store Connect:** create the app record for the main bundle ID. Create an API key (Users and Access → Integrations, Admin role).
 3. **GitHub repo secrets:** `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `APPLE_TEAM_ID`. Repo variable: `API_BASE_URL`.
 4. **Backend:** create a free MongoDB Atlas cluster, deploy the server's Docker image to a host, set the three environment variables.

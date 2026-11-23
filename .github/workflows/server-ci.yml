@@ -1,0 +1,63 @@
+# Compile and test the account server on Linux (PLAN.md section 7). The route tests run
+# against an in-memory user repository; the MongoDB service container lets the tests of
+# the real MongoKitten repository run too. A second job checks that the Docker image builds.
+name: server-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: swift build and swift test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: swift:6.3-noble
+    services:
+      mongo:
+        image: mongo:8.0
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      # Used only by the MongoDB repository tests; the route tests need no database.
+      MONGODB_TEST_URI: mongodb://mongo:27017/concentrationmaxx_test
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v6
+        with:
+          path: server/.build
+          key: swiftpm-${{ runner.os }}-6.3-${{ hashFiles('server/Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-6.3-
+
+      - name: swift build
+        run: swift build --build-tests
+
+      - name: swift test
+        run: swift test --skip-build
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: docker build
+        run: docker build --tag concentrationmaxx-server:ci server
