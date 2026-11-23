@@ -2,14 +2,13 @@ import SwiftUI
 
 @main
 struct ConcentrationMaxxApp: App {
+    @StateObject private var model = AppModel()
+
     var body: some Scene {
         WindowGroup {
-            VStack(spacing: 12) {
-                Image(systemName: "scope")
-                    .font(.system(size: 56))
-                Text("ConcentrationMaxx")
-                    .font(.title.bold())
-            }
+            RootView()
+                .environmentObject(model)
+                .environmentObject(model.screenTime)
         }
     }
 }
