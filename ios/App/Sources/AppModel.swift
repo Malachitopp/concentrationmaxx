@@ -13,11 +13,17 @@ struct Banner: Identifiable, Equatable {
     var message: String
 }
 
+/// Thrown when an account change is attempted during a block (PLAN.md section 3).
+struct LockedDuringBlockError: LocalizedError {
+    var errorDescription: String? { "This is not possible while a block is running." }
+}
+
 /// The app's state and the only place the UI starts, changes or ends blocks.
 @MainActor
 final class AppModel: ObservableObject {
     let settings: AppSettings
     let screenTime: ScreenTimeAccess
+    let account: AccountService
     let diagnostics: DiagnosticsLog?
     /// Set when the App Group container cannot be opened. Nothing can be blocked then.
     let storageProblem: String?
@@ -36,11 +42,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var strictMode: Bool
     @Published private(set) var reelsFreeEnabled: Bool
     @Published private(set) var instagramStrategy: InstagramStrategy
+    @Published private(set) var accountProfile: AccountProfile? = nil
+    @Published private(set) var serverStatus: ServerSessionStatus = .notApplicable
     @Published var banner: Banner? = nil
 
     init(settings: AppSettings = AppSettings()) {
         self.settings = settings
         self.screenTime = ScreenTimeAccess()
+        self.account = AccountService(serverMode: AppConfig.current.serverMode)
         self.onboardingCompleted = settings.onboardingCompleted
         self.unlockEntries = settings.unlockEntries
         self.strictMode = settings.strictMode
@@ -70,6 +79,20 @@ final class AppModel: ObservableObject {
             messagingSelection = selections.load(.messaging)
             instagramSelection = selections.load(.instagram)
         }
+
+        // Keychain items outlive the app, so a fresh install clears what an earlier
+        // install left behind before anything reads it.
+        if !settings.hasLaunchedBefore {
+            account.wipeLocal()
+            settings.hasLaunchedBefore = true
+        }
+        accountProfile = account.hasAccount ? account.profile : nil
+    }
+
+    /// Where onboarding starts: from the account step when only the account is missing
+    /// (after logging out), otherwise from the welcome screen.
+    var initialOnboardingStep: OnboardingView.Step {
+        accountProfile == nil && !socialSelection.isEmptySelection ? .account : .welcome
     }
 
     var isBlockRunning: Bool { session != nil || sessionProblem != nil }
@@ -265,6 +288,49 @@ final class AppModel: ObservableObject {
     func completeOnboarding() {
         onboardingCompleted = true
         settings.onboardingCompleted = true
+    }
+
+    // MARK: Account (PLAN.md sections 3 and 5)
+
+    func createAccount(username: String, password: String, inviteCode: String) async throws {
+        accountProfile = try await account.createAccount(username: username, password: password, inviteCode: inviteCode)
+    }
+
+    func logIn(username: String, password: String) async throws {
+        accountProfile = try await account.logIn(username: username, password: password)
+    }
+
+    /// Changing the password is disabled during a block.
+    func changePassword(current: String, new: String) async throws {
+        guard !isBlockRunning else { throw LockedDuringBlockError() }
+        try await account.changePassword(current: current, new: new)
+        banner = Banner(kind: .info, message: "Password changed.")
+        await refreshServerStatus()
+    }
+
+    /// Deleting the account is disabled during a block: it would remove the password.
+    func deleteAccount(password: String) async throws {
+        guard !isBlockRunning else { throw LockedDuringBlockError() }
+        try await account.deleteAccount(password: password)
+        accountSignedOut()
+    }
+
+    /// Logging out is disabled during a block.
+    func logOut() {
+        guard !isBlockRunning else { return show(error: LockedDuringBlockError()) }
+        account.logOut()
+        accountSignedOut()
+    }
+
+    func refreshServerStatus() async {
+        serverStatus = await account.checkServerSession()
+    }
+
+    private func accountSignedOut() {
+        accountProfile = nil
+        serverStatus = .notApplicable
+        onboardingCompleted = false
+        settings.onboardingCompleted = false
     }
 
     // MARK: Messages

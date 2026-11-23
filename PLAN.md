@@ -22,7 +22,7 @@ Plan written 2026-11-23. Section 10 lists the open risks that only a test on a r
 These are platform rules, not choices. Each one shapes the design.
 
 1. **Apps are picked, not hardcoded.** iOS hides other apps' identities from us. During setup each person picks their apps in Apple's own picker, once. The setup screen lists what to tick (TikTok, Instagram, X, Reddit, Snapchat, then messaging apps).
-2. **TestFlight needs Apple's approval for this API.** The "Family Controls (Distribution)" entitlement is requested once for the whole developer team, through a single form (no bundle IDs, no justification text). Once it is assigned to the team, the Family Controls capability still has to be enabled on each of the four App IDs. The approval time is unknown: Apple's form does not say whether the grant is instant or reviewed (under the older per-bundle-ID process developers reported waits from a few days to over a month). Nothing reaches TestFlight until it is granted, so this is the first thing to do (section 9).
+2. **TestFlight needs Apple's approval for this API.** The "Family Controls (Distribution)" entitlement is requested once for the whole developer team, through a single form (no bundle IDs, no justification text), and then enabled on each of the four App IDs. For this repo's team it is **already assigned** (2026-11-23) and enabled on all four App IDs, so there is no wait. A fork on another team must request it first; Apple does not say whether that grant is instant or reviewed. Development-signed builds are separate: they need "Family Controls (Development)" on the App IDs, which is not enabled (section 10).
 3. **Blocks are at least 15 minutes.** The scheduling API rejects shorter intervals.
 4. **An app cannot switch on Do Not Disturb or mute other apps' notifications.** Hence the Shortcuts action above.
 5. **A determined person can still get out.** Settings → Screen Time lets the phone's owner revoke the app's access with the device passcode. Strict mode (section 4) closes the cheaper exits: deleting the app and changing the clock.
@@ -164,13 +164,17 @@ server/
 
 ## 9. What only the account owner can do
 
-In order. Step 1 has the longest wait, so start it first.
+Steps 1 to 3 are **done for this repo** (2026-11-23). They stay listed because a fork on another team has to repeat them; the README has the detailed walkthrough.
 
-1. **Apple Developer portal:** first accept the latest Program License Agreement at <https://developer.apple.com/account>; until it is accepted, Certificates/Identifiers/Profiles, App Store Connect and the App Store Connect API stay locked. Then submit the single team-level **Family Controls (Distribution)** request at <https://developer.apple.com/contact/request/family-controls-distribution> (one form for the whole team; the approval time is unknown). Register the four bundle IDs and the App Group from section 3, with the App Groups and Family Controls capabilities, and once the distribution entitlement is assigned to the team, make sure Family Controls is enabled on each of the four App IDs.
-2. **App Store Connect:** create the app record for the main bundle ID. Create an API key (Users and Access → Integrations, Admin role).
-3. **GitHub repo secrets:** `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `APPLE_TEAM_ID`. Repo variable: `API_BASE_URL`.
-4. **Backend:** create a free MongoDB Atlas cluster, deploy the server's Docker image to a host, set the three environment variables.
-5. **TestFlight:** run the workflow, then add friends as external testers. The first build goes through Apple's beta review.
+1. ~~**Apple Developer portal**~~ (done): the latest Program License Agreement is accepted, Family Controls (Distribution) is assigned to the team, the App Group and the four App IDs from section 3 are registered, and each App ID has App Groups (with the group) and Family Controls (Distribution) enabled.
+2. ~~**App Store Connect**~~ (done): the app record exists for the main bundle ID, and a team API key with the Admin role exists.
+3. ~~**GitHub repo secrets**~~ (done): `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY`, `APPLE_TEAM_ID`.
+
+What remains:
+
+4. **Backend:** create a free MongoDB Atlas cluster, deploy the server's Docker image to a host, set the three environment variables, then set the repo variable `API_BASE_URL` to the server's https address. Until then, builds use device-only accounts (section 5).
+5. **TestFlight testers:** fill in the TestFlight test information (including a demo account for beta review once the server is up), add yourself as an internal tester, then friends as external testers. The first external build goes through Apple's beta review.
+6. **Optional, for development-signed builds only:** tick "Family Controls (Development)" on the four App IDs and register your iPhone's UDID. testflight.yml's TestFlight mode does not need either.
 
 ## 10. Open risks, to check on a real iPhone
 
@@ -181,6 +185,7 @@ In order. Step 1 has the longest wait, so start it first.
 | Monitor extension misses the end of a block | Let a 15-minute block run out with the app closed | Backups 2 and 3 in section 3 still lift it |
 | Apple Messages cannot be shielded | Add Messages to the messaging group | It must first be removed from Screen Time's Always Allowed list |
 | Beta review objects to wrapping Instagram's website | First external TestFlight build | Ship that build with the feature compiled out |
+| Development-signed builds lack the Family Controls entitlement | testflight.yml in development mode | Only Family Controls (Distribution) is enabled on the App IDs; tick Family Controls (Development) and register a device. TestFlight builds are unaffected |
 
 ## 11. Build order
 

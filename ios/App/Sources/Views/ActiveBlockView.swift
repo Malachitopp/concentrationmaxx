@@ -1,9 +1,14 @@
 import SwiftUI
 
+extension UnlockView.Purpose: Identifiable {
+    var id: Self { self }
+}
+
 /// The running block (PLAN.md section 4): countdown and end time, plus the ways out.
 struct ActiveBlockView: View {
     @EnvironmentObject private var model: AppModel
     let session: BlockSession
+    @State private var unlockPurpose: UnlockView.Purpose?
 
     var body: some View {
         ScrollView {
@@ -36,10 +41,33 @@ struct ActiveBlockView: View {
 
                 VStack(spacing: 12) {
                     extendMenu
+
+                    Button(role: .destructive) {
+                        unlockPurpose = .endBlock
+                    } label: {
+                        Label("End block early", systemImage: "lock.open")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+
+                    Text("Ending early takes your password \(session.unlockEntries) times in a row.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
+        }
+        .sheet(item: $unlockPurpose) { purpose in
+            UnlockView(purpose: purpose, required: purpose == .unblockMessaging ? 1 : session.unlockEntries) {
+                switch purpose {
+                case .endBlock, .endDamagedBlock:
+                    model.endBlockEarly()
+                case .unblockMessaging:
+                    model.unblockMessaging()
+                }
+            }
         }
         .task(id: session.end) {
             // Lift the block the moment it ends while the app is open.

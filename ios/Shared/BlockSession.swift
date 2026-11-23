@@ -33,7 +33,7 @@ enum BlockRules {
     static let minimumDuration: TimeInterval = 15 * 60
     /// Sessions run 15 minutes to 24 hours (PLAN.md section 3).
     static let maximumDuration: TimeInterval = 24 * 60 * 60
-    /// Rounding the end up to a whole minute can add up to this much.
+    /// Rounding the end up to a whole minute adds less than this.
     static let roundingAllowance: TimeInterval = 60
     /// Duration presets on the home screen, in minutes.
     static let presetMinutes = [15, 30, 60, 120, 240]
@@ -129,7 +129,9 @@ extension BlockSession {
         guard !isExpired(at: now) else { throw BlockError.alreadyEnded }
         guard extra > 0 else { throw BlockError.cannotShorten }
         let newEnd = BlockRules.roundedUpToMinute(end.addingTimeInterval(extra))
-        guard newEnd.timeIntervalSince(start) <= BlockRules.maximumDuration + BlockRules.roundingAllowance else {
+        // Rounding the end up adds less than a minute, so anything under 24 h + 1 min
+        // is a block of at most 24 hours.
+        guard newEnd.timeIntervalSince(start) < BlockRules.maximumDuration + BlockRules.roundingAllowance else {
             throw BlockError.wouldExceedMaximum
         }
         var copy = self

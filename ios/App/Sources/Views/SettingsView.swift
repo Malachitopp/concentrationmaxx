@@ -7,6 +7,9 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var screenTime: ScreenTimeAccess
     @Environment(\.dismiss) private var dismiss
+    @State private var showingChangePassword = false
+    @State private var showingDeleteAccount = false
+    @State private var confirmingLogOut = false
 
     var body: some View {
         NavigationStack {
@@ -35,6 +38,20 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Stepper(value: Binding(
+                        get: { model.unlockEntries },
+                        set: { model.setUnlockEntries($0) }
+                    ), in: BlockRules.unlockEntriesRange) {
+                        LabeledContent("Password entries to end early", value: "\(model.unlockEntries)")
+                    }
+                    .disabled(model.isBlockRunning)
+                } header: {
+                    Text("Unlocking")
+                } footer: {
+                    Text("Ending a block early takes this many correct entries in a row. Unblocking messaging takes one. Five wrong entries lock the unlock screen for five minutes.")
+                }
+
+                Section {
                     Toggle("Strict mode", isOn: Binding(
                         get: { model.strictMode },
                         set: { model.setStrictMode($0) }
@@ -43,6 +60,8 @@ struct SettingsView: View {
                 } footer: {
                     Text("During a block, apps cannot be deleted and the date and time must stay automatic, which closes the two cheapest ways out.")
                 }
+
+                accountSection
 
                 Section("Advanced") {
                     NavigationLink("Diagnostics") {
@@ -68,6 +87,58 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showingChangePassword) {
+                ChangePasswordView()
+            }
+            .sheet(isPresented: $showingDeleteAccount) {
+                DeleteAccountView()
+            }
+            .confirmationDialog("Log out?", isPresented: $confirmingLogOut, titleVisibility: .visible) {
+                Button("Log out", role: .destructive) {
+                    model.logOut()
+                    dismiss()
+                }
+            } message: {
+                Text("Your password is removed from this iPhone. You set it up again before the next block.")
+            }
+            .task {
+                await model.refreshServerStatus()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var accountSection: some View {
+        Section {
+            if let profile = model.accountProfile {
+                LabeledContent("Account", value: profile.serverBacked ? profile.username : "On this iPhone only")
+                if profile.serverBacked {
+                    LabeledContent("Server", value: serverStatusText)
+                }
+            }
+            Button("Change password") { showingChangePassword = true }
+                .disabled(model.isBlockRunning)
+            Button("Log out") { confirmingLogOut = true }
+                .disabled(model.isBlockRunning)
+            Button("Delete account", role: .destructive) { showingDeleteAccount = true }
+                .disabled(model.isBlockRunning)
+        } header: {
+            Text("Account")
+        } footer: {
+            if model.isBlockRunning {
+                Text("Changing the password, logging out and deleting the account are locked while a block runs. A forgotten password means the block runs until it ends.")
+            } else {
+                Text("The server stores only your username and a bcrypt hash of your password.")
+            }
+        }
+    }
+
+    private var serverStatusText: String {
+        switch model.serverStatus {
+        case .active: return "Signed in"
+        case .signedOut: return "Session ended, log in again to change the account"
+        case .unreachable: return "Cannot be reached right now"
+        case .notApplicable: return "Not used"
         }
     }
 }

@@ -1,15 +1,16 @@
 import FamilyControls
 import SwiftUI
 
-/// First-run setup (PLAN.md section 4): welcome → Screen Time permission → social
-/// apps → messaging apps → done.
+/// First-run setup (PLAN.md section 4): welcome → create account / log in → Screen
+/// Time permission → social apps → messaging apps → done.
 struct OnboardingView: View {
     enum Step: Int, CaseIterable {
-        case welcome, screenTime, socialApps, messagingApps, finish
+        case welcome, account, screenTime, socialApps, messagingApps, finish
 
         var title: String {
             switch self {
             case .welcome: return "Welcome"
+            case .account: return "Your account"
             case .screenTime: return "Screen Time access"
             case .socialApps: return "Social apps"
             case .messagingApps: return "Messaging apps"
@@ -21,6 +22,7 @@ struct OnboardingView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var screenTime: ScreenTimeAccess
     @State private var step: Step = .welcome
+    @State private var placedInitialStep = false
 
     var body: some View {
         NavigationStack {
@@ -47,6 +49,11 @@ struct OnboardingView: View {
                 }
             }
         }
+        .onAppear {
+            guard !placedInitialStep else { return }
+            placedInitialStep = true
+            step = model.initialOnboardingStep
+        }
     }
 
     // MARK: Steps
@@ -62,6 +69,18 @@ struct OnboardingView: View {
                 "Messaging apps can be blocked too, and unblocked with one password entry.",
                 "Phone calls are never blocked.",
             ])
+        case .account:
+            OnboardingHeader(symbol: "person.badge.key", title: model.account.usesServer ? "Create an account or log in" : "Set your password",
+                             text: "Your password ends a block early. It is checked on this iPhone, so unlocking works with no signal.")
+            if let profile = model.accountProfile {
+                Label(profile.serverBacked ? "Signed in as \(profile.username)." : "Your password is set.",
+                      systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                AccountSetupView {
+                    move(by: 1)
+                }
+            }
         case .screenTime:
             OnboardingHeader(symbol: "hourglass", title: "Allow Screen Time access",
                              text: "iOS asks you to confirm with Face ID or your passcode. Without this permission nothing can be blocked.")
@@ -94,6 +113,9 @@ struct OnboardingView: View {
     @ViewBuilder
     private var footer: some View {
         switch step {
+        case .account where model.accountProfile == nil:
+            // AccountSetupView has its own button.
+            EmptyView()
         case .screenTime where !screenTime.isApproved:
             Button {
                 Task { await screenTime.request() }
@@ -133,6 +155,7 @@ struct OnboardingView: View {
 
     private var canContinue: Bool {
         switch step {
+        case .account: return model.accountProfile != nil
         case .screenTime: return screenTime.isApproved
         case .socialApps: return !model.socialSelection.isEmptySelection
         default: return true

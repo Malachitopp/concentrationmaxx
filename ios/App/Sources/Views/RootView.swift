@@ -7,7 +7,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if model.onboardingCompleted {
+            if model.onboardingCompleted, model.accountProfile != nil {
                 MainView()
             } else {
                 OnboardingView()
@@ -64,10 +64,12 @@ struct MainView: View {
     }
 }
 
-/// Shown when a block record exists but cannot be read. The block stays in place.
+/// Shown when a block record exists but cannot be read. The block stays in place until
+/// the person ends it with the usual password entries.
 struct DamagedBlockView: View {
     @EnvironmentObject private var model: AppModel
     let problem: String
+    @State private var unlocking = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -84,8 +86,17 @@ struct DamagedBlockView: View {
                 model.appBecameActive()
             }
             .buttonStyle(.bordered)
+            Button("End block (password \(model.unlockEntries) times)", role: .destructive) {
+                unlocking = true
+            }
+            .buttonStyle(.bordered)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $unlocking) {
+            UnlockView(purpose: .endDamagedBlock, required: model.unlockEntries) {
+                model.endBlockEarly()
+            }
+        }
     }
 }
