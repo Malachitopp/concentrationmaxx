@@ -194,6 +194,9 @@ targets:
       - path: Tests
       - path: Shared
       - path: App/Core
+      # The Reels filter files, so the tests check the files that ship.
+      - path: App/Resources/Instagram
+        buildPhase: resources
     settings:
       groups: [cmxTarget]
       base:

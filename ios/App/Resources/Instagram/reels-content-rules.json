@@ -1,0 +1,29 @@
+[
+  {
+    "trigger": { "url-filter": "^https?://([^/]+\\.)?instagram\\.com/api/v1/clips/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]+\\.)?instagram\\.com/api/v1/discover/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]+\\.)?instagram\\.com/reels?/", "resource-type": ["document"] },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]+\\.)?instagram\\.com/explore/", "resource-type": ["document"] },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]+\\.)?instagram\\.com/[^/]+/reels?/", "resource-type": ["document"] },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": ".*", "if-domain": ["*instagram.com"] },
+    "action": {
+      "type": "css-display-none",
+      "selector": "a[href^=\"/reels\"], a[href^=\"/reel/\"], a[href^=\"/explore\"], a[href*=\"/reels/\"]"
+    }
+  }
+]

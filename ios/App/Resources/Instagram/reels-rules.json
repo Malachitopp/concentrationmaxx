@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "instagramHosts": ["instagram.com"],
+  "blockedFirstSegments": ["reels", "reel", "explore"],
+  "blockedSecondSegments": ["reels", "reel"],
+  "feedURL": "https://www.instagram.com/"
+}

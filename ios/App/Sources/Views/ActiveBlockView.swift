@@ -51,6 +51,8 @@ struct ActiveBlockView: View {
                         .controlSize(.large)
                     }
 
+                    InstagramLaunchButton()
+
                     extendMenu
 
                     Button(role: .destructive) {

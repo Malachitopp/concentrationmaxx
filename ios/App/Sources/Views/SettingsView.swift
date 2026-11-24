@@ -64,6 +64,8 @@ struct SettingsView: View {
                     Text("During a block, apps cannot be deleted and the date and time must stay automatic, which closes the two cheapest ways out.")
                 }
 
+                InstagramSettingsSection()
+
                 accountSection
 
                 Section {
@@ -94,6 +96,8 @@ struct SettingsView: View {
                 } footer: {
                     Text("Blocked apps are silenced by iOS while they are shielded. An app cannot silence the others or turn on Do Not Disturb itself, so a shortcut does both.")
                 }
+
+                InstagramStrategySection()
 
                 Section("Advanced") {
                     NavigationLink("Diagnostics") {

@@ -231,6 +231,7 @@ struct OptionsForm: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            ReelsFreeOption()
         }
         .disabled(model.isBlockRunning)
     }
