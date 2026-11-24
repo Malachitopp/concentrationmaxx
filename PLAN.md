@@ -47,7 +47,7 @@ App Group `group.com.malachitopp.concentrationmaxx` shares the session record be
 - Two saved `FamilyActivitySelection`s: **social** and **messaging**. Each maps to its own named `ManagedSettingsStore`, so unblocking messaging is "clear one store".
 - Shield covers picked apps, picked categories and picked websites (`shield.applications`, `shield.applicationCategories`, `shield.webDomains`). The shield takes at most 50 individual apps; the picker's categories cover larger sets.
 - No use of `webContent.blockedByFilter = .specific(...)`: developers report it failing in Safari on iOS 26 and blocking unrelated content on 26.6.
-- Starting a block: the app applies the shields immediately, saves a session record `{id, start, end, messagingBlocked, strictMode}` to the App Group, and registers a non-repeating `DeviceActivitySchedule` ending at `end`.
+- Starting a block: the app applies the shields immediately, saves a session record `{id, start, end, messagingBlocked, strictMode, unlockEntries}` to the App Group, and registers a non-repeating `DeviceActivitySchedule` from `start` to `end` (full dates, so a block can cross midnight; starting at `start` keeps the interval at 15 minutes or more when it is registered again after an extension). `unlockEntries` fixes N for the block, so the shield can say how many entries ending early takes.
 - Ending on time, three independent paths because the monitor callback is not fully reliable:
   1. Monitor extension `intervalDidEnd` clears both stores.
   2. The app checks for an expired session every time it comes to the foreground.
@@ -136,7 +136,7 @@ If neither works on a real device, the feature cannot coexist with blocking the 
 - **XcodeGen** (`ios/project.yml`) describes the project; the `.xcodeproj` is generated in CI and never committed.
 - `ios-ci.yml` on every push: generate, build for the simulator unsigned, run unit tests. This needs no secrets and is the compile check for all development.
 - `server-ci.yml` on every push: `swift build` and `swift test` on Linux with a MongoDB service container.
-- `testflight.yml`, run by hand: archive with automatic signing through an App Store Connect API key, upload to TestFlight. Build number is the run number. A second mode exports a development-signed `.ipa` for registered devices, for testing before Apple grants the distribution entitlement.
+- `testflight.yml`, run by hand: archive unsigned, sign the archive ad hoc with its real entitlements, then export with automatic signing through an App Store Connect API key (Admin role, for Apple's cloud-managed distribution certificate) and upload to TestFlight. The archive therefore needs no development certificate, development profile or registered device. Build number is the run number (a re-run of the same run adds the attempt number). A second mode exports a development-signed `.ipa` for registered devices; it needs Family Controls (Development) on the App IDs and a registered device.
 - macOS runners are free for public repos.
 
 ## 8. Repo layout

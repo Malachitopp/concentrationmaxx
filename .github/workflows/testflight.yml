@@ -1,0 +1,299 @@
+# Builds ConcentrationMaxx on a GitHub macOS runner, signs it with the App Store Connect
+# API key and uploads it to TestFlight (PLAN.md section 7). Run it by hand from
+# Actions → testflight → Run workflow. No Mac, certificate or profile is needed:
+#
+#   1. The archive is built unsigned, then signed ad hoc with the app's real
+#      entitlements (Family Controls, App Group) embedded (ios/scripts/adhoc-sign-archive.sh).
+#      That needs no development certificate, no development profile and no
+#      registered device.
+#   2. The export re-signs it with Apple's cloud-managed distribution certificate and
+#      App Store profiles that Xcode creates through the API key (-allowProvisioningUpdates).
+#      The key needs the Admin role for cloud-managed signing.
+#   3. The signed app is checked (entitlements, versions), then uploaded.
+#
+# Secrets: APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY (the .p8 file's
+# text). Optional repository variable: API_BASE_URL (the account server; without it the
+# build uses device-only accounts). README.md explains each one.
+name: testflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "testflight: sign for the App Store and upload. development-ipa: a development-signed .ipa for registered devices."
+        type: choice
+        options:
+          - testflight
+          - development-ipa
+        default: testflight
+      include_reels_free:
+        description: "Include Reels-free Instagram (untick for a build that must pass beta review without it)"
+        type: boolean
+        default: true
+      wait_for_processing:
+        description: "Wait until App Store Connect has processed the upload (testflight mode)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# One signing run at a time, and never cancel an upload halfway.
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+env:
+  XCODE_VERSION: "26.6"
+  XCODEGEN_VERSION: "2.48.0"
+  XCODEGEN_SHA256: "620c9f0dc10849f94728ab5df52d225ebab8187439dd6fee1925e59e80dff892"
+  ARCHIVE_PATH: ${{ github.workspace }}/build/ConcentrationMaxx.xcarchive
+
+jobs:
+  build:
+    name: ${{ inputs.mode }} build
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check the secrets
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          missing=""
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing. README.md → 'GitHub secrets' says what goes in each."
+            exit 1
+          fi
+          echo "All four secrets are set."
+
+      - name: Write the App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/asc"
+          mkdir -p "$dir"
+          chmod 700 "$dir"
+          key="$dir/AuthKey_${ASC_KEY_ID}.p8"
+          # The secret holds the .p8 file's text; its base64 encoding is accepted too.
+          if printf '%s' "$ASC_PRIVATE_KEY" | grep -q "PRIVATE KEY"; then
+            printf '%s\n' "$ASC_PRIVATE_KEY" > "$key"
+          else
+            printf '%s' "$ASC_PRIVATE_KEY" | base64 --decode > "$key"
+          fi
+          chmod 600 "$key"
+          if ! grep -q "BEGIN PRIVATE KEY" "$key"; then
+            echo "::error::ASC_PRIVATE_KEY is neither the .p8 file's text nor its base64 encoding."
+            exit 1
+          fi
+          echo "ASC_KEY_PATH=$key" >> "$GITHUB_ENV"
+
+      - name: Check the API key with App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: node ios/scripts/asc.mjs check-key
+
+      - name: Select Xcode
+        run: bash ios/scripts/select-xcode.sh "$XCODE_VERSION"
+
+      - name: Install XcodeGen
+        run: bash ios/scripts/install-xcodegen.sh "$XCODEGEN_VERSION" "$XCODEGEN_SHA256"
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Build number
+        id: version
+        run: |
+          # The build number is the run number (PLAN.md section 7). A re-run of the same
+          # run gets a suffix, because App Store Connect refuses a build number twice.
+          build="$GITHUB_RUN_NUMBER"
+          if [ "$GITHUB_RUN_ATTEMPT" != "1" ]; then build="$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT"; fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Build number $build"
+
+      - name: Archive (unsigned)
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          FEATURE_FLAGS: ${{ inputs.include_reels_free && 'REELS_FREE' || '' }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -o pipefail
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::notice::The repository variable API_BASE_URL is not set, so this build uses device-only accounts."
+          fi
+          xcodebuild archive \
+            -project ios/ConcentrationMaxx.xcodeproj \
+            -scheme ConcentrationMaxx \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION="$BUILD" \
+            API_BASE_URL="$API_BASE_URL" \
+            CMX_FEATURE_FLAGS="$FEATURE_FLAGS" \
+            | xcbeautify --renderer github-actions
+
+      - name: Sign the archive ad hoc with its entitlements
+        run: bash ios/scripts/adhoc-sign-archive.sh "$ARCHIVE_PATH" ios/Generated
+
+      - name: Check the archive
+        env:
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          bash ios/scripts/check-app-bundle.sh "$ARCHIVE_PATH/Products/Applications/ConcentrationMaxx.app" "$BUILD"
+          app="$ARCHIVE_PATH/Products/Applications/ConcentrationMaxx.app"
+          echo "BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" >> "$GITHUB_ENV"
+          echo "MARKETING_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")" >> "$GITHUB_ENV"
+
+      - name: Write the export options
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          write_options() {
+            # $1 = file, $2 = method, $3 = destination
+            cat > "$1" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>$2</string>
+            <key>destination</key><string>$3</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+            plutil -lint "$1" > /dev/null
+          }
+          write_options "$RUNNER_TEMP/export-appstore.plist" app-store-connect export
+          write_options "$RUNNER_TEMP/upload-appstore.plist" app-store-connect upload
+          write_options "$RUNNER_TEMP/export-development.plist" debugging export
+
+      # ---------- TestFlight ----------
+
+      - name: Sign for the App Store (cloud-managed certificate)
+        if: inputs.mode == 'testflight'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$RUNNER_TEMP/export-appstore" \
+            -exportOptionsPlist "$RUNNER_TEMP/export-appstore.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            | xcbeautify --renderer github-actions
+
+      - name: Check the signed app
+        if: inputs.mode == 'testflight'
+        env:
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          ipa="$(ls "$RUNNER_TEMP"/export-appstore/*.ipa | head -n 1)"
+          unpacked="$RUNNER_TEMP/unpacked-appstore"
+          rm -rf "$unpacked" && mkdir -p "$unpacked"
+          unzip -q "$ipa" -d "$unpacked"
+          bash ios/scripts/check-app-bundle.sh "$unpacked/Payload/ConcentrationMaxx.app" "$BUILD" distribution
+
+      - name: Upload to TestFlight
+        if: inputs.mode == 'testflight'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$RUNNER_TEMP/upload-appstore" \
+            -exportOptionsPlist "$RUNNER_TEMP/upload-appstore.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            | xcbeautify --renderer github-actions
+
+      - name: Wait for App Store Connect processing
+        if: inputs.mode == 'testflight' && inputs.wait_for_processing
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          node ios/scripts/asc.mjs wait-build "$BUNDLE_ID" "$MARKETING_VERSION" "$BUILD"
+          echo "ConcentrationMaxx $MARKETING_VERSION ($BUILD) is in App Store Connect → TestFlight." >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- Development .ipa ----------
+      # Needs "Family Controls (Development)" on the four App IDs and at least one
+      # registered device. Xcode creates an Apple Development certificate through the
+      # API key; it is kept, because a revoked certificate stops the .ipa from launching.
+
+      - name: Sign for registered devices (development)
+        if: inputs.mode == 'development-ipa'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$RUNNER_TEMP/export-development" \
+            -exportOptionsPlist "$RUNNER_TEMP/export-development.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            | xcbeautify --renderer github-actions
+
+      - name: Check the development app
+        if: inputs.mode == 'development-ipa'
+        env:
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          ipa="$(ls "$RUNNER_TEMP"/export-development/*.ipa | head -n 1)"
+          unpacked="$RUNNER_TEMP/unpacked-development"
+          rm -rf "$unpacked" && mkdir -p "$unpacked"
+          unzip -q "$ipa" -d "$unpacked"
+          bash ios/scripts/check-app-bundle.sh "$unpacked/Payload/ConcentrationMaxx.app" "$BUILD"
+          mkdir -p "$RUNNER_TEMP/ipa"
+          cp "$ipa" "$RUNNER_TEMP/ipa/ConcentrationMaxx-$BUILD-development.ipa"
+
+      # Artifacts of a public repository can be downloaded by any signed-in GitHub user,
+      # and a development .ipa contains the registered devices' IDs, so it is kept for
+      # one day only. Delete it from the run page once it is installed.
+      - name: Upload the development .ipa
+        if: inputs.mode == 'development-ipa'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ConcentrationMaxx-development-ipa
+          path: ${{ runner.temp }}/ipa/*.ipa
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Remove the API key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"

@@ -102,34 +102,31 @@ jobs:
         working-directory: ios
         run: xcodegen generate --spec project.yml
 
-      - name: Build for generic iOS device (Release, unsigned)
+      # The same archive steps as testflight.yml, up to the point where Apple's signing
+      # takes over, so they are checked on every push without any secrets.
+      - name: Archive for generic iOS device (Release, unsigned)
         env:
           FEATURE_FLAGS: ${{ matrix.feature_flags }}
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild archive \
             -project ios/ConcentrationMaxx.xcodeproj \
             -scheme ConcentrationMaxx \
             -configuration Release \
             -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/ConcentrationMaxx.xcarchive" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=1 \
             CMX_FEATURE_FLAGS="$FEATURE_FLAGS" \
             | xcbeautify --renderer github-actions
 
-      - name: Check the built app bundle
+      - name: Sign the archive ad hoc with its entitlements
+        run: bash ios/scripts/adhoc-sign-archive.sh "$RUNNER_TEMP/ConcentrationMaxx.xcarchive" ios/Generated
+
+      - name: Check the archived app
         run: |
           set -euo pipefail
-          app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/ConcentrationMaxx.app"
-          plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Info.plist"; }
-          echo "App: $(plist "$app" CFBundleIdentifier) $(plist "$app" CFBundleShortVersionString) ($(plist "$app" CFBundleVersion))"
+          app="$RUNNER_TEMP/ConcentrationMaxx.xcarchive/Products/Applications/ConcentrationMaxx.app"
           test -f "$app/PrivacyInfo.xcprivacy"
-          for ext in CMXMonitor CMXShieldConfig CMXShieldAction; do
-            appex="$app/PlugIns/$ext.appex"
-            test -d "$appex" || { echo "::error::$ext.appex is not embedded in PlugIns"; exit 1; }
-            echo "$ext: $(plist "$appex" CFBundleIdentifier) -> $(plist "$appex" NSExtension:NSExtensionPointIdentifier)"
-            test "$(plist "$appex" CFBundleVersion)" = "$(plist "$app" CFBundleVersion)"
-            test "$(plist "$appex" CFBundleShortVersionString)" = "$(plist "$app" CFBundleShortVersionString)"
-            test "$(plist "$appex" CMXAppGroupID)" = "$(plist "$app" CMXAppGroupID)"
-          done
-          echo "App Group: $(plist "$app" CMXAppGroupID)"
+          bash ios/scripts/check-app-bundle.sh "$app" 1
