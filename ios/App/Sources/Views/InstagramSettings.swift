@@ -84,7 +84,7 @@ struct InstagramStrategySection: View {
         } header: {
             Text("Instagram strategy (debug)")
         } footer: {
-            Text("Shield: Instagram is shielded like every other app, and iOS may then block instagram.com in the in-app view too. Hide: Instagram is taken out of the shield and hidden from the Home Screen instead, which may also leave instagram.com open in Safari.")
+            Text("Shield: Instagram is shielded like every other app, and iOS may then block instagram.com in the in-app view too. Hide: Instagram is taken out of the shield and hidden from the Home Screen instead, which may also leave instagram.com open in Safari. With Hide, check that the Instagram icon disappears when a block starts; if it stays, Hide does not work on this iPhone and Instagram is not blocked, so switch back to Shield.")
         }
     }
     #else

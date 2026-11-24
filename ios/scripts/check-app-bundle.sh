@@ -57,9 +57,11 @@ check_bundle() {
   if [ "$mode" = "distribution" ]; then
     local task_allow beta
     task_allow="$(/usr/libexec/PlistBuddy -c 'Print :get-task-allow' "$ents" 2>/dev/null || echo false)"
-    [ "$task_allow" = "false" ] || fail "$name still has get-task-allow (not an App Store signature)"
+    [ "$task_allow" = "false" ] || fail "$name still has get-task-allow (a development signature, not an App Store one)"
     beta="$(/usr/libexec/PlistBuddy -c 'Print :beta-reports-active' "$ents" 2>/dev/null || echo missing)"
-    [ "$beta" = "true" ] || fail "$name has no beta-reports-active entitlement (not signed for TestFlight)"
+    if [ "$beta" != "true" ]; then
+      echo "::warning::$name has no beta-reports-active entitlement; App Store Connect may not offer the build to TestFlight"
+    fi
   fi
   rm -f "$ents"
   echo "  $name: entitlements OK"

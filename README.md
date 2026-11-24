@@ -172,6 +172,7 @@ Screen Time features cannot be tested on a simulator, so these are the checks th
 | Strict mode | During a block, try to delete an app or change the clock | Both refused |
 | Apple Messages | Add Messages to the messaging list | It must first be removed from Screen Time's "Always Allowed" list |
 | Reels-free Instagram | Turn it on in Settings, start a block, open "Instagram (no Reels)" | If iOS blocks instagram.com there too, switch Settings → Advanced → Instagram strategy to "Hide" and pick Instagram on its own |
+| "Hide" strategy | With Hide on, start a block | The Instagram icon must disappear from the Home Screen. If it stays, Hide does not work under this kind of Screen Time access and leaves Instagram unblocked: switch back to Shield |
 | Shortcuts | In Shortcuts, add "Start a Block" from ConcentrationMaxx | A block starts without opening the app |
 
 Please send back anything that fails, with a screenshot of Diagnostics if it is relevant.

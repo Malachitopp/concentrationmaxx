@@ -167,7 +167,7 @@ jobs:
         run: |
           set -euo pipefail
           write_options() {
-            # $1 = file, $2 = method, $3 = destination
+            # $1 = file, $2 = method, $3 = destination, $4 = extra keys
             cat > "$1" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -177,16 +177,16 @@ jobs:
             <key>destination</key><string>$3</string>
             <key>signingStyle</key><string>automatic</string>
             <key>teamID</key><string>${APPLE_TEAM_ID}</string>
-            <key>uploadSymbols</key><true/>
-            <key>manageAppVersionAndBuildNumber</key><false/>
+            $4
           </dict>
           </plist>
           PLIST
             plutil -lint "$1" > /dev/null
           }
-          write_options "$RUNNER_TEMP/export-appstore.plist" app-store-connect export
-          write_options "$RUNNER_TEMP/upload-appstore.plist" app-store-connect upload
-          write_options "$RUNNER_TEMP/export-development.plist" debugging export
+          app_store_keys='<key>uploadSymbols</key><true/><key>manageAppVersionAndBuildNumber</key><false/>'
+          write_options "$RUNNER_TEMP/export-appstore.plist" app-store-connect export "$app_store_keys"
+          write_options "$RUNNER_TEMP/upload-appstore.plist" app-store-connect upload "$app_store_keys"
+          write_options "$RUNNER_TEMP/export-development.plist" debugging export ""
 
       # ---------- TestFlight ----------
 
