@@ -1,3 +1,4 @@
+import Combine
 import FamilyControls
 import Foundation
 import SwiftUI
@@ -23,8 +24,10 @@ struct LockedDuringBlockError: LocalizedError {
 final class AppModel: ObservableObject {
     let settings: AppSettings
     let screenTime: ScreenTimeAccess
+    let notifications: NotificationAccess
     let account: AccountService
     let diagnostics: DiagnosticsLog?
+    private var observers: Set<AnyCancellable> = []
     /// Set when the App Group container cannot be opened. Nothing can be blocked then.
     let storageProblem: String?
 
@@ -49,6 +52,7 @@ final class AppModel: ObservableObject {
     init(settings: AppSettings = AppSettings()) {
         self.settings = settings
         self.screenTime = ScreenTimeAccess()
+        self.notifications = NotificationAccess()
         self.account = AccountService(serverMode: AppConfig.current.serverMode)
         self.onboardingCompleted = settings.onboardingCompleted
         self.unlockEntries = settings.unlockEntries
@@ -87,6 +91,14 @@ final class AppModel: ObservableObject {
             settings.hasLaunchedBefore = true
         }
         accountProfile = account.hasAccount ? account.profile : nil
+
+        // A block started from Shortcuts while the app is open shows up right away.
+        NotificationCenter.default.publisher(for: .cmxBlockStateChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.appBecameActive()
+            }
+            .store(in: &observers)
     }
 
     /// Where onboarding starts: from the account step when only the account is missing
@@ -142,16 +154,19 @@ final class AppModel: ObservableObject {
     // MARK: Blocks
 
     func currentPlan() -> ShieldPlan {
-        ShieldPlan(social: socialSelection, messaging: messagingSelection, instagramHide: instagramHideSelection)
+        BlockSetup.plan(social: socialSelection,
+                        messaging: messagingSelection,
+                        instagram: instagramSelection,
+                        reelsFreeEnabled: reelsFreeEnabled,
+                        strategy: instagramStrategy,
+                        reelsFreeAvailable: Self.reelsFreeAvailable)
     }
 
-    /// The Instagram pick to hide, under the "Hide" strategy only.
-    var instagramHideSelection: FamilyActivitySelection? {
-        guard Self.reelsFreeAvailable, reelsFreeEnabled, instagramStrategy == .hide,
-              !instagramSelection.isEmptySelection else {
-            return nil
-        }
-        return instagramSelection
+    /// Whether blocks hide Instagram instead of shielding it (the "Hide" strategy).
+    var hidesInstagram: Bool {
+        BlockSetup.hidesInstagram(reelsFreeEnabled: reelsFreeEnabled, strategy: instagramStrategy,
+                                  instagramPicked: !instagramSelection.isEmptySelection,
+                                  reelsFreeAvailable: Self.reelsFreeAvailable)
     }
 
     @discardableResult

@@ -2,10 +2,11 @@ import FamilyControls
 import SwiftUI
 
 /// First-run setup (PLAN.md section 4): welcome → create account / log in → Screen
-/// Time permission → social apps → messaging apps → done.
+/// Time permission → social apps → messaging apps → notification permission →
+/// optional features → done.
 struct OnboardingView: View {
     enum Step: Int, CaseIterable {
-        case welcome, account, screenTime, socialApps, messagingApps, finish
+        case welcome, account, screenTime, socialApps, messagingApps, notifications, options, finish
 
         var title: String {
             switch self {
@@ -14,6 +15,8 @@ struct OnboardingView: View {
             case .screenTime: return "Screen Time access"
             case .socialApps: return "Social apps"
             case .messagingApps: return "Messaging apps"
+            case .notifications: return "Notifications"
+            case .options: return "Options"
             case .finish: return "All set"
             }
         }
@@ -21,6 +24,7 @@ struct OnboardingView: View {
 
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var screenTime: ScreenTimeAccess
+    @EnvironmentObject private var notifications: NotificationAccess
     @State private var step: Step = .welcome
     @State private var placedInitialStep = false
 
@@ -53,6 +57,9 @@ struct OnboardingView: View {
             guard !placedInitialStep else { return }
             placedInitialStep = true
             step = model.initialOnboardingStep
+        }
+        .task {
+            await notifications.refresh()
         }
     }
 
@@ -104,6 +111,23 @@ struct OnboardingView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             SelectionEditor(kind: .messaging, buttonTitle: "Choose apps")
+        case .notifications:
+            OnboardingHeader(symbol: "bell.badge", title: "Know when a block ends",
+                             text: "ConcentrationMaxx sends one notification when your block is over. It sends nothing else.")
+            Text("While an app is shielded, iOS also keeps its notifications quiet. To silence every other app too, see Settings → Do Not Disturb for a shortcut that starts a block and turns on Do Not Disturb together.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if notifications.isAllowed {
+                Label("Notifications are allowed.", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else if notifications.status == .denied {
+                Label("Notifications are off. You can turn them on later in iOS Settings.", systemImage: "bell.slash")
+                    .foregroundStyle(.secondary)
+            }
+        case .options:
+            OnboardingHeader(symbol: "slider.horizontal.3", title: "Optional features",
+                             text: "You can change these in Settings whenever no block is running.")
+            OptionsForm()
         case .finish:
             OnboardingHeader(symbol: "checkmark.seal", title: "You are ready",
                              text: "Pick a duration and start a block. Blocks last 15 minutes to 24 hours and can be extended but not shortened.")
@@ -116,6 +140,21 @@ struct OnboardingView: View {
         case .account where model.accountProfile == nil:
             // AccountSetupView has its own button.
             EmptyView()
+        case .notifications where notifications.status == .notDetermined:
+            VStack(spacing: 8) {
+                Button {
+                    Task {
+                        await notifications.request()
+                        move(by: 1)
+                    }
+                } label: {
+                    Text("Allow notifications").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                Button("Not now") { move(by: 1) }
+                    .font(.callout)
+            }
         case .screenTime where !screenTime.isApproved:
             Button {
                 Task { await screenTime.request() }
@@ -165,6 +204,35 @@ struct OnboardingView: View {
     private func move(by offset: Int) {
         guard let next = Step(rawValue: step.rawValue + offset) else { return }
         withAnimation { step = next }
+    }
+}
+
+/// Strict mode and the number of password entries; the Reels-free option joins them
+/// when that feature is compiled in.
+struct OptionsForm: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Toggle(isOn: Binding(get: { model.strictMode }, set: { model.setStrictMode($0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Strict mode")
+                    Text("During a block, apps cannot be deleted and the clock stays automatic. Recommended.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Stepper(value: Binding(get: { model.unlockEntries }, set: { model.setUnlockEntries($0) }),
+                    in: BlockRules.unlockEntriesRange) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Password entries to end early: \(model.unlockEntries)")
+                    Text("Correct entries in a row needed to end a block before its time.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .disabled(model.isBlockRunning)
     }
 }
 

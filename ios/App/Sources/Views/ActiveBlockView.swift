@@ -40,6 +40,17 @@ struct ActiveBlockView: View {
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                 VStack(spacing: 12) {
+                    if session.messagingBlocked {
+                        Button {
+                            unlockPurpose = .unblockMessaging
+                        } label: {
+                            Label("Unblock messaging apps", systemImage: "message")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                    }
+
                     extendMenu
 
                     Button(role: .destructive) {

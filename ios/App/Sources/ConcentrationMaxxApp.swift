@@ -9,6 +9,7 @@ struct ConcentrationMaxxApp: App {
             RootView()
                 .environmentObject(model)
                 .environmentObject(model.screenTime)
+                .environmentObject(model.notifications)
         }
     }
 }

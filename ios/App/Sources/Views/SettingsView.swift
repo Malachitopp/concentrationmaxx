@@ -1,12 +1,15 @@
 import FamilyControls
 import SwiftUI
+import UIKit
 
 /// Settings (PLAN.md section 4). Block lists and the block-related options are locked
 /// while a block is running.
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var screenTime: ScreenTimeAccess
+    @EnvironmentObject private var notifications: NotificationAccess
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var showingChangePassword = false
     @State private var showingDeleteAccount = false
     @State private var confirmingLogOut = false
@@ -63,6 +66,35 @@ struct SettingsView: View {
 
                 accountSection
 
+                Section {
+                    LabeledContent("End-of-block notification", value: notifications.statusDescription)
+                    if notifications.status == .notDetermined {
+                        Button("Allow notifications") {
+                            Task { await notifications.request() }
+                        }
+                    } else if notifications.status == .denied {
+                        Button("Open iOS Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                openURL(url)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Notifications")
+                } footer: {
+                    Text("One notification when a block is over, nothing else.")
+                }
+
+                Section {
+                    NavigationLink("Set up the Do Not Disturb shortcut") {
+                        DoNotDisturbGuide()
+                    }
+                } header: {
+                    Text("Do Not Disturb")
+                } footer: {
+                    Text("Blocked apps are silenced by iOS while they are shielded. An app cannot silence the others or turn on Do Not Disturb itself, so a shortcut does both.")
+                }
+
                 Section("Advanced") {
                     NavigationLink("Diagnostics") {
                         DiagnosticsView()
@@ -102,6 +134,7 @@ struct SettingsView: View {
                 Text("Your password is removed from this iPhone. You set it up again before the next block.")
             }
             .task {
+                await notifications.refresh()
                 await model.refreshServerStatus()
             }
         }
@@ -187,6 +220,40 @@ struct DiagnosticsView: View {
 
     private func reload() {
         events = model.diagnostics?.events() ?? []
+    }
+}
+
+/// How to make one shortcut that turns on Do Not Disturb, keeps calls ringing and starts
+/// a block (PLAN.md section 1).
+struct DoNotDisturbGuide: View {
+    var body: some View {
+        List {
+            Section("Make the shortcut") {
+                step(1, "Open the Shortcuts app and tap + to make a new shortcut.")
+                step(2, "Add the action \"Set Focus\", choose Do Not Disturb, Turn On, and \"Until Turned Off\" (or a time).")
+                step(3, "Add the action \"Start a Block\" from ConcentrationMaxx. Set the minutes, and \"Also block messaging apps\" if you like.")
+                step(4, "Name it, for example \"Focus now\". Run it from the Shortcuts app, a Home Screen icon, the Action button or Siri.")
+            }
+            Section("Keep phone calls ringing") {
+                step(1, "Open Settings → Focus → Do Not Disturb → People.")
+                step(2, "Under \"Allow Calls From\", choose Everyone, or All Contacts.")
+                step(3, "Leave \"Allow Repeated Calls\" on, so a second call within three minutes always rings.")
+            }
+            Section {
+                Text("The block itself never blocks calls: the Phone app cannot be shielded. Do Not Disturb is the only way to quiet notifications from apps that are not blocked.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Do Not Disturb")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func step(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(number).").bold().monospacedDigit()
+            Text(text)
+        }
     }
 }
 
