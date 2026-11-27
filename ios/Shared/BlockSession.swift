@@ -10,9 +10,16 @@ struct BlockSession: Codable, Equatable, Identifiable {
     /// "also block messaging" switch and becomes false after "Unblock messaging apps".
     var messagingBlocked: Bool
     var strictMode: Bool
+    /// A serious block cannot be ended early: no password gets out of it, and it runs
+    /// until `end`. Fixed when the block starts. A serious block is always strict.
+    var seriousMode: Bool = false
     /// Password entries needed to end this block early. Fixed when the block starts,
     /// because the setting can only change while no block is running.
     var unlockEntries: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, start, end, messagingBlocked, strictMode, seriousMode, unlockEntries
+    }
 
     var duration: TimeInterval { end.timeIntervalSince(start) }
 
@@ -24,6 +31,22 @@ struct BlockSession: Codable, Equatable, Identifiable {
 
     func remaining(at now: Date) -> TimeInterval {
         max(0, end.timeIntervalSince(now))
+    }
+}
+
+extension BlockSession {
+    /// Records written before serious mode existed have no `seriousMode` key. They are
+    /// read as ordinary blocks, so a block that is running across an app update stays
+    /// readable instead of turning into a damaged record.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try container.decode(UUID.self, forKey: .id),
+                  start: try container.decode(Date.self, forKey: .start),
+                  end: try container.decode(Date.self, forKey: .end),
+                  messagingBlocked: try container.decode(Bool.self, forKey: .messagingBlocked),
+                  strictMode: try container.decode(Bool.self, forKey: .strictMode),
+                  seriousMode: try container.decodeIfPresent(Bool.self, forKey: .seriousMode) ?? false,
+                  unlockEntries: try container.decode(Int.self, forKey: .unlockEntries))
     }
 }
 
@@ -69,10 +92,13 @@ enum BlockError: Error, Equatable, LocalizedError {
     case nothingToBlock
     case tooManyApps(Int)
     case messagingNotBlocked
+    case cannotEndSeriousBlock
     case storageUnavailable(String)
 
     var errorDescription: String? {
         switch self {
+        case .cannotEndSeriousBlock:
+            return "This is a serious block. It cannot be ended early and runs until its end time."
         case .durationTooShort:
             return "A block has to last at least 15 minutes."
         case .durationTooLong:
@@ -102,12 +128,15 @@ enum BlockError: Error, Equatable, LocalizedError {
 extension BlockSession {
     /// Creates a session that starts at `now`. The end is rounded up to the next whole
     /// minute, so "Blocked until 17:31" is exact and the schedule ends on a minute.
+    /// A serious block is always strict: without strict mode, deleting the app or
+    /// moving the clock forward would end a block that is meant to have no way out.
     static func make(
         id: UUID = UUID(),
         now: Date,
         duration: TimeInterval,
         messagingBlocked: Bool,
         strictMode: Bool,
+        seriousMode: Bool = false,
         unlockEntries: Int
     ) throws -> BlockSession {
         guard duration >= BlockRules.minimumDuration else { throw BlockError.durationTooShort }
@@ -118,7 +147,8 @@ extension BlockSession {
             start: now,
             end: BlockRules.roundedUpToMinute(now.addingTimeInterval(duration)),
             messagingBlocked: messagingBlocked,
-            strictMode: strictMode,
+            strictMode: strictMode || seriousMode,
+            seriousMode: seriousMode,
             unlockEntries: entries
         )
     }

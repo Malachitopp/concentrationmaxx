@@ -12,6 +12,7 @@ Plan written 2026-11-23. Section 10 lists the open risks that only a test on a r
 | Messaging apps blocked too, but unblockable | Messaging apps are a second, separate group. Each block has an "also block messaging" switch, and during a block one password entry unblocks messaging only. |
 | Never block phone calls | The Phone app cannot be shielded by this API and is never in any group. FaceTime and Apple Messages stay in iOS's "Always Allowed" list unless you remove them yourself. |
 | Password three times before unlocking | "End block early" asks for the password 3 times in a row (adjustable 3–5). A wrong entry restarts the count. No paste, no AutoFill, no Face ID. |
+| Serious mode: a block that cannot be unlocked (added 2026-11-26) | A per-block switch on the home screen. A serious block has no early end: the app refuses it whatever the password, and it lifts only when its time is up (section 3). |
 | Block all notifications | Notifications from shielded apps are silenced by iOS while the shield is up. For every other app, iOS only allows this through Focus / Do Not Disturb, so the app ships a Shortcuts action that starts a block and can be chained with "turn on Do Not Disturb". |
 | Instagram without Reels (optional) | A built-in web view of instagram.com with Reels requests blocked and the Reels tab removed. Off by default; each person turns it on in Settings. |
 | Login details in a non-relational DB | A small Swift server (Vapor) storing accounts in MongoDB. It holds a username and a bcrypt password hash, nothing else. |
@@ -25,7 +26,7 @@ These are platform rules, not choices. Each one shapes the design.
 2. **TestFlight needs Apple's approval for this API.** The "Family Controls (Distribution)" entitlement is requested once for the whole developer team, through a single form (no bundle IDs, no justification text), and then enabled on each of the four App IDs. For this repo's team it is **already assigned** (2026-11-23) and enabled on all four App IDs, so there is no wait. A fork on another team must request it first; Apple does not say whether that grant is instant or reviewed. Development-signed builds are separate: they need "Family Controls (Development)" on the App IDs, which is not enabled (section 10).
 3. **Blocks are at least 15 minutes.** The scheduling API rejects shorter intervals.
 4. **An app cannot switch on Do Not Disturb or mute other apps' notifications.** Hence the Shortcuts action above.
-5. **A determined person can still get out.** Settings → Screen Time lets the phone's owner revoke the app's access with the device passcode. Strict mode (section 4) closes the cheaper exits: deleting the app and changing the clock.
+5. **A determined person can still get out.** Settings → Screen Time lets the phone's owner revoke the app's access with the device passcode. Strict mode (section 4) closes the cheaper exits: deleting the app and changing the clock. Serious mode removes the app's own way out but not this one: no app can stop its owner revoking Screen Time access.
 6. **Blocking an app also blocks its website.** Shielding Instagram shields instagram.com in Safari too. Useful in general, but it is the main risk for the Reels-free feature (section 6).
 
 ## 3. Architecture
@@ -47,7 +48,7 @@ App Group `group.com.malachitopp.concentrationmaxx` shares the session record be
 - Two saved `FamilyActivitySelection`s: **social** and **messaging**. Each maps to its own named `ManagedSettingsStore`, so unblocking messaging is "clear one store".
 - Shield covers picked apps, picked categories and picked websites (`shield.applications`, `shield.applicationCategories`, `shield.webDomains`). The shield takes at most 50 individual apps; the picker's categories cover larger sets.
 - No use of `webContent.blockedByFilter = .specific(...)`: developers report it failing in Safari on iOS 26 and blocking unrelated content on 26.6.
-- Starting a block: the app applies the shields immediately, saves a session record `{id, start, end, messagingBlocked, strictMode, unlockEntries}` to the App Group, and registers a non-repeating `DeviceActivitySchedule` from `start` to `end` (full dates, so a block can cross midnight; starting at `start` keeps the interval at 15 minutes or more when it is registered again after an extension). `unlockEntries` fixes N for the block, so the shield can say how many entries ending early takes.
+- Starting a block: the app applies the shields immediately, saves a session record `{id, start, end, messagingBlocked, strictMode, seriousMode, unlockEntries}` to the App Group, and registers a non-repeating `DeviceActivitySchedule` from `start` to `end` (full dates, so a block can cross midnight; starting at `start` keeps the interval at 15 minutes or more when it is registered again after an extension). `unlockEntries` fixes N for the block, so the shield can say how many entries ending early takes.
 - Ending on time, three independent paths because the monitor callback is not fully reliable:
   1. Monitor extension `intervalDidEnd` clears both stores.
   2. The app checks for an expired session every time it comes to the foreground.
@@ -60,6 +61,19 @@ App Group `group.com.malachitopp.concentrationmaxx` shares the session record be
 
 During a block: `application.denyAppRemoval = true` (no deleting apps to escape) and `dateAndTime.requireAutomaticDateAndTime = true` (no moving the clock forward). Both are cleared when the block ends.
 
+### Serious mode (per block, off by default)
+
+A block started with the "Serious mode" switch on cannot be ended early. It is a property of the block, saved in the session record, so it cannot be changed once the block runs.
+
+- **Enforced in the engine, not only the UI.** `BlockEngine.endNow` refuses a serious block that is still running, so no screen or future caller can end it. The active-block screen shows no "End block early" button, and the shield says the block cannot be ended early instead of describing the password route.
+- **Always strict.** A serious block turns on the strict-mode restrictions even when the Strict mode setting is off. Otherwise deleting the app or moving the clock would end it.
+- **Still ends on time.** The three end paths above are unchanged. Extending is allowed (longer, never shorter).
+- **Messaging stays unblockable.** If the block also covers messaging, one password entry still unblocks messaging only, as the first requirement in section 1 asks. This does not open any social app.
+- **Asked first.** The home screen confirms before starting a serious block, because there is no way back. The switch keeps its last state. The Shortcuts action has a "Serious mode" parameter (off by default) and does not ask.
+- **A damaged record is the one exception.** If the session record cannot be read, its end time is unknown and nothing could ever lift the block, so the damaged-block screen still ends it with the usual password entries. A person cannot damage the record from the phone.
+- **Old records.** A record saved by a build without serious mode has no `seriousMode` key and is read as an ordinary block.
+- What it cannot close is in section 2, point 5.
+
 ### Passwords and unlocking
 
 - The password is the account password, minimum 10 characters.
@@ -71,12 +85,12 @@ During a block: `application.denyAppRemoval = true` (no deleting apps to escape)
 ## 4. Screens
 
 1. **Onboarding:** welcome → create account / log in → Screen Time permission → pick social apps → pick messaging apps → notification permission → optional features.
-2. **Home:** duration (15m, 30m, 1h, 2h, 4h, custom), "also block messaging apps" switch, Start.
-3. **Active block:** countdown and end time, "Unblock messaging apps" (1 password entry), "Instagram (no Reels)" if enabled, "End block early" (3 password entries).
+2. **Home:** duration (15m, 30m, 1h, 2h, 4h, custom), "also block messaging apps" switch, "Serious mode" switch, Start (a serious block asks for confirmation first).
+3. **Active block:** countdown and end time, "Unblock messaging apps" (1 password entry), "Instagram (no Reels)" if enabled, "End block early" (3 password entries; not offered in a serious block).
 4. **Unlock:** step 1 of 3, 2 of 3, 3 of 3.
 5. **Settings:** edit block lists (locked during a block), Reels-free Instagram on/off, password entries required, strict mode, account (change password, log out, delete account), Do Not Disturb shortcut instructions.
 
-Shortcuts: a `StartBlockIntent` App Intent with a duration parameter, so one shortcut can turn on Do Not Disturb (with calls still allowed) and start a block.
+Shortcuts: a `StartBlockIntent` App Intent with a duration parameter and "also block messaging" and "serious mode" switches, so one shortcut can turn on Do Not Disturb (with calls still allowed) and start a block.
 
 ## 5. Backend
 

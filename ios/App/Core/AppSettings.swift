@@ -30,6 +30,7 @@ final class AppSettings {
         case instagramStrategy = "settings.instagramStrategy"
         case onboardingCompleted = "settings.onboardingCompleted"
         case blockMessaging = "settings.blockMessaging"
+        case seriousMode = "settings.seriousMode"
         case lastDurationMinutes = "settings.lastDurationMinutes"
         case hasLaunchedBefore = "settings.hasLaunchedBefore"
     }
@@ -79,6 +80,13 @@ final class AppSettings {
         set { defaults.set(newValue, forKey: Key.blockMessaging.rawValue) }
     }
 
+    /// The last state of the "Serious mode" switch. Off until the person turns it on;
+    /// the home screen still asks before every serious block.
+    var seriousMode: Bool {
+        get { bool(.seriousMode, default: false) }
+        set { defaults.set(newValue, forKey: Key.seriousMode.rawValue) }
+    }
+
     /// The last duration picked on the home screen.
     var lastDurationMinutes: Int {
         get {
@@ -97,7 +105,7 @@ final class AppSettings {
 
     func reset() {
         for key in [Key.unlockEntries, .strictMode, .reelsFreeEnabled, .instagramStrategy,
-                    .onboardingCompleted, .blockMessaging, .lastDurationMinutes] {
+                    .onboardingCompleted, .blockMessaging, .seriousMode, .lastDurationMinutes] {
             defaults.removeObject(forKey: key.rawValue)
         }
     }

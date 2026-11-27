@@ -94,6 +94,13 @@ final class StorageAndSettingsTests: XCTestCase {
         settings.strictMode = false
         XCTAssertFalse(AppSettings(defaults: defaults).strictMode)
 
+        // Serious mode is never on unless the person turned it on, and a reset clears it.
+        XCTAssertFalse(settings.seriousMode)
+        settings.seriousMode = true
+        XCTAssertTrue(AppSettings(defaults: defaults).seriousMode)
+        settings.reset()
+        XCTAssertFalse(settings.seriousMode)
+
         settings.lastDurationMinutes = 5
         XCTAssertEqual(settings.lastDurationMinutes, 15)
         settings.lastDurationMinutes = 5000

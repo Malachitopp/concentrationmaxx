@@ -11,7 +11,7 @@ extension Notification.Name {
 /// Disturb (with calls still allowed) and start a block.
 struct StartBlockIntent: AppIntent {
     static let title: LocalizedStringResource = "Start a Block"
-    static let description: IntentDescription? = IntentDescription("Blocks your social apps with ConcentrationMaxx for the number of minutes you choose (15 to 1440). Ending early takes your password.")
+    static let description: IntentDescription? = IntentDescription("Blocks your social apps with ConcentrationMaxx for the number of minutes you choose (15 to 1440). Ending early takes your password. With Serious mode on, the block cannot be ended early at all.")
     static let openAppWhenRun = false
 
     @Parameter(title: "Minutes", default: 60)
@@ -20,9 +20,15 @@ struct StartBlockIntent: AppIntent {
     @Parameter(title: "Also block messaging apps", default: false)
     var blockMessaging: Bool
 
+    /// Off by default, so shortcuts made before serious mode existed keep starting
+    /// ordinary blocks. The title says what it does because Shortcuts shows nothing else.
+    @Parameter(title: "Serious mode (cannot be ended early)", default: false)
+    var seriousMode: Bool
+
     static var parameterSummary: some ParameterSummary {
         Summary("Block social apps for \(\.$minutes) minutes") {
             \.$blockMessaging
+            \.$seriousMode
         }
     }
 
@@ -65,18 +71,20 @@ struct StartBlockIntent: AppIntent {
                                        plan: plan,
                                        blockMessaging: blockMessaging,
                                        strictMode: settings.strictMode,
+                                       seriousMode: seriousMode,
                                        unlockEntries: settings.unlockEntries)
         } catch {
             throw StartBlockIntentError.failed(error.localizedDescription)
         }
-        log?.record(.intent, "Block started from Shortcuts for \(minutes) min")
+        log?.record(.intent, "Block started from Shortcuts for \(minutes) min\(seriousMode ? ", serious mode" : "")")
         NotificationCenter.default.post(name: .cmxBlockStateChanged, object: nil)
 
         let until = ShieldContent.endDescription(outcome.session.end, now: Date())
+        let serious = outcome.session.seriousMode ? " This is a serious block: it cannot be ended early." : ""
         if let warning = outcome.warnings.first {
-            return .result(dialog: "Blocked until \(until). \(warning)")
+            return .result(dialog: "Blocked until \(until).\(serious) \(warning)")
         }
-        return .result(dialog: "Blocked until \(until).")
+        return .result(dialog: "Blocked until \(until).\(serious)")
     }
 }
 

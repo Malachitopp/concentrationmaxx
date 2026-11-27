@@ -74,11 +74,13 @@ final class BlockEngine {
 
     /// Starts a block. Shields go up first, then the record is saved, then the end is
     /// scheduled: if a later step fails, the result is "still blocked", never
-    /// "silently unblocked" (PLAN.md section 3).
+    /// "silently unblocked" (PLAN.md section 3). A serious block cannot be ended early
+    /// (see `endNow`) and is always strict.
     func start(duration: TimeInterval,
                plan: ShieldPlan,
                blockMessaging: Bool,
                strictMode: Bool,
+               seriousMode: Bool = false,
                unlockEntries: Int) throws -> BlockOutcome {
         let now = self.now()
         if let existing = try sessions.load(), !existing.isExpired(at: now) {
@@ -97,6 +99,7 @@ final class BlockEngine {
                                             duration: duration,
                                             messagingBlocked: messaging,
                                             strictMode: strictMode,
+                                            seriousMode: seriousMode,
                                             unlockEntries: unlockEntries)
 
         shields.applySocial(plan.social, hidingInstagram: plan.instagramHide)
@@ -105,7 +108,8 @@ final class BlockEngine {
         } else {
             shields.clearMessaging()
         }
-        shields.applyStrict(strictMode)
+        // The session's flag, not the setting: a serious block is strict either way.
+        shields.applyStrict(session.strictMode)
 
         do {
             try sessions.save(session)
@@ -124,7 +128,7 @@ final class BlockEngine {
             log?.record(.app, "Could not schedule the end: \(error.localizedDescription)")
         }
         notifier?.scheduleEndNotification(for: session)
-        log?.record(.app, "Block started, ends \(Self.logDate(session.end)); messaging \(messaging ? "blocked" : "open"), strict mode \(strictMode ? "on" : "off")")
+        log?.record(.app, "Block started, ends \(Self.logDate(session.end)); messaging \(messaging ? "blocked" : "open"), strict mode \(session.strictMode ? "on" : "off"), serious mode \(session.seriousMode ? "on" : "off")")
         return BlockOutcome(session: session, warnings: warnings)
     }
 
@@ -166,8 +170,16 @@ final class BlockEngine {
 
     // MARK: Ending a block
 
-    /// Ends the block now, after the password entries.
+    /// Ends the block now, after the password entries. A serious block that is still
+    /// running is refused: it only ends on time, through `endIfExpired`.
     func endNow(source: EndSource) throws {
+        // Enforced here, not only in the UI, so no caller can end a serious block early.
+        // A record that cannot be read is let through: its end time is unknown, so
+        // nothing else could ever lift it (the damaged-block screen).
+        if let session = try? sessions.load(), session.seriousMode, !session.isExpired(at: now()) {
+            log?.record(source.diagnosticSource, "Refused to end a serious block early; it runs until \(Self.logDate(session.end))")
+            throw BlockError.cannotEndSeriousBlock
+        }
         // The record goes first. If removing it fails, nothing has been lifted yet.
         try sessions.clear()
         shields.clearAll()

@@ -7,6 +7,8 @@ struct HomeView: View {
     @EnvironmentObject private var screenTime: ScreenTimeAccess
     @State private var minutes = 60
     @State private var blockMessaging = false
+    @State private var seriousMode = false
+    @State private var confirmingSerious = false
     @State private var loaded = false
 
     var body: some View {
@@ -41,10 +43,22 @@ struct HomeView: View {
             }
 
             Section {
+                Toggle("Serious mode", isOn: $seriousMode)
+            } footer: {
+                Text("A serious block cannot be ended early. No password gets you out, strict mode is always on, and it runs until the timer ends.")
+            }
+
+            Section {
                 Button {
-                    model.startBlock(minutes: minutes, blockMessaging: blockMessaging)
+                    if seriousMode {
+                        // No way back once it starts, so ask first.
+                        confirmingSerious = true
+                    } else {
+                        model.startBlock(minutes: minutes, blockMessaging: blockMessaging)
+                    }
                 } label: {
-                    Label("Start block", systemImage: "lock.fill")
+                    Label(seriousMode ? "Start serious block" : "Start block",
+                          systemImage: seriousMode ? "lock.shield.fill" : "lock.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -55,6 +69,8 @@ struct HomeView: View {
             } footer: {
                 if model.socialSelection.isEmptySelection {
                     Text("Pick the social apps to block in Settings first.")
+                } else if seriousMode {
+                    Text("This block cannot be ended early.")
                 } else {
                     Text("Ending early takes your password \(model.unlockEntries) times in a row.")
                 }
@@ -69,11 +85,20 @@ struct HomeView: View {
                 Text("Phone calls are never blocked.")
             }
         }
+        .confirmationDialog("Start a serious block?", isPresented: $confirmingSerious, titleVisibility: .visible) {
+            Button("Block for \(DurationText.minutes(minutes)), no way out", role: .destructive) {
+                model.startBlock(minutes: minutes, blockMessaging: blockMessaging, seriousMode: true)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your apps stay blocked for \(DurationText.minutes(minutes)). It cannot be ended early: your password will not end it, and it can be made longer but not shorter.")
+        }
         .onAppear {
             guard !loaded else { return }
             loaded = true
             minutes = model.settings.lastDurationMinutes
             blockMessaging = model.settings.blockMessaging && !model.messagingSelection.isEmptySelection
+            seriousMode = model.settings.seriousMode
         }
     }
 }

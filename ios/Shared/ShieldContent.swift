@@ -46,6 +46,14 @@ enum ShieldContent {
             )
         default:
             let name = itemName.flatMap { $0.isEmpty ? nil : $0 } ?? "This app"
+            if session.seriousMode {
+                // No way out to describe: a serious block only ends on time.
+                return ShieldText(
+                    title: "Blocked until \(until)",
+                    subtitle: "\(name) stays closed while your block runs. This is a serious block: it cannot be ended early.",
+                    primaryButton: "Close"
+                )
+            }
             let times = session.unlockEntries == 1 ? "once" : "\(session.unlockEntries) times"
             return ShieldText(
                 title: "Blocked until \(until)",

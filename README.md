@@ -1,6 +1,6 @@
 # ConcentrationMaxx
 
-An iPhone app that blocks social media for a time you choose. Ending a block early means typing your password several times in a row (3 by default). Built on Apple's Screen Time API, written in Swift (app and server), and shipped through TestFlight by GitHub Actions, so no Mac is needed.
+An iPhone app that blocks social media for a time you choose. Ending a block early means typing your password several times in a row (3 by default), and a block started in serious mode cannot be ended early at all. Built on Apple's Screen Time API, written in Swift (app and server), and shipped through TestFlight by GitHub Actions, so no Mac is needed.
 
 [PLAN.md](PLAN.md) is the design: what each part does and why. This README is the setup guide.
 
@@ -170,6 +170,7 @@ Screen Time features cannot be tested on a simulator, so these are the checks th
 | Messaging | Block with "also block messaging", then Unblock messaging apps | One correct entry frees messaging only |
 | Notifications from blocked apps | Have a friend message you on a blocked app | If they still arrive, use the Do Not Disturb shortcut (Settings → Do Not Disturb) |
 | Strict mode | During a block, try to delete an app or change the clock | Both refused |
+| Serious mode | Turn on Serious mode on the home screen and start a 15-minute block | The app asks first. Then there is no "End block early", the blocked-app screen says the block cannot be ended early, deleting an app and changing the clock are refused even with Strict mode off, and the block lifts on time |
 | Apple Messages | Add Messages to the messaging list | It must first be removed from Screen Time's "Always Allowed" list |
 | Reels-free Instagram | Turn it on in Settings, start a block, open "Instagram (no Reels)" | If iOS blocks instagram.com there too, switch Settings → Advanced → Instagram strategy to "Hide" and pick Instagram on its own |
 | "Hide" strategy | With Hide on, start a block | The Instagram icon must disappear from the Home Screen. If it stays, Hide does not work under this kind of Screen Time access and leaves Instagram unblocked: switch back to Shield |
@@ -272,6 +273,7 @@ Things that may need updating over time:
 | "Screen Time access is off" | Settings → Screen Time must be on, the iPhone needs a passcode and an iCloud account; then allow access again in the app |
 | An app stays blocked after the end time | Open ConcentrationMaxx once, or tap the shield's button: both lift an expired block. Diagnostics shows whether the monitor ran |
 | Forgot the password during a block | The block runs until it ends. That is by design |
+| Started a serious block by mistake | It runs until it ends, and the app has no override. That is by design, which is why the home screen asks before starting one |
 
 ---
 
@@ -279,5 +281,5 @@ Things that may need updating over time:
 
 - **Server (MongoDB):** username, bcrypt hash of the password, created and updated times. No email, no usage data, no app lists. Delete account (Settings, outside a block) removes the record.
 - **iPhone, Keychain:** the login token and a PBKDF2-HMAC-SHA256 verifier of the password (random salt, 600,000 iterations), so unlocking works offline. Never the password itself.
-- **iPhone, App Group:** the running block (start, end, messaging and strict mode flags), the app lists as opaque Screen Time tokens, and a short diagnostics log. None of it leaves the phone.
+- **iPhone, App Group:** the running block (start, end, and the messaging, strict mode and serious mode flags), the app lists as opaque Screen Time tokens, and a short diagnostics log. None of it leaves the phone.
 - No analytics, tracking or third-party SDKs.

@@ -51,7 +51,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Unlocking")
                 } footer: {
-                    Text("Ending a block early takes this many correct entries in a row. Unblocking messaging takes one. Five wrong entries lock the unlock screen for five minutes.")
+                    Text("Ending a block early takes this many correct entries in a row. Unblocking messaging takes one. Five wrong entries lock the unlock screen for five minutes. A block started in serious mode cannot be ended early at all.")
                 }
 
                 Section {
@@ -61,7 +61,7 @@ struct SettingsView: View {
                     ))
                     .disabled(model.isBlockRunning)
                 } footer: {
-                    Text("During a block, apps cannot be deleted and the date and time must stay automatic, which closes the two cheapest ways out.")
+                    Text("During a block, apps cannot be deleted and the date and time must stay automatic, which closes the two cheapest ways out. Serious blocks always use strict mode, whatever this switch says.")
                 }
 
                 InstagramSettingsSection()
@@ -235,7 +235,7 @@ struct DoNotDisturbGuide: View {
             Section("Make the shortcut") {
                 step(1, "Open the Shortcuts app and tap + to make a new shortcut.")
                 step(2, "Add the action \"Set Focus\", choose Do Not Disturb, Turn On, and \"Until Turned Off\" (or a time).")
-                step(3, "Add the action \"Start a Block\" from ConcentrationMaxx. Set the minutes, and \"Also block messaging apps\" if you like.")
+                step(3, "Add the action \"Start a Block\" from ConcentrationMaxx. Set the minutes, and \"Also block messaging apps\" if you like. \"Serious mode\" makes every block from this shortcut impossible to end early, with no question asked first.")
                 step(4, "Name it, for example \"Focus now\". Run it from the Shortcuts app, a Home Screen icon, the Action button or Siri.")
             }
             Section("Keep phone calls ringing") {

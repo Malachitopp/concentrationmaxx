@@ -28,6 +28,9 @@ struct ActiveBlockView: View {
                 .padding(.top, 32)
 
                 VStack(alignment: .leading, spacing: 10) {
+                    if session.seriousMode {
+                        statusRow("Serious mode: this block cannot be ended early", symbol: "lock.fill")
+                    }
                     statusRow(session.messagingBlocked ? "Messaging apps are blocked" : "Messaging apps are open",
                               symbol: session.messagingBlocked ? "message.badge.filled.fill" : "message")
                     statusRow(session.strictMode ? "Strict mode: apps cannot be deleted, the clock stays automatic" : "Strict mode is off",
@@ -55,18 +58,27 @@ struct ActiveBlockView: View {
 
                     extendMenu
 
-                    Button(role: .destructive) {
-                        unlockPurpose = .endBlock
-                    } label: {
-                        Label("End block early", systemImage: "lock.open")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
+                    if session.seriousMode {
+                        // No "End block early" here: the engine refuses it for a
+                        // serious block, so the button would only lead to an error.
+                        Text("This is a serious block. It cannot be ended early and runs until its end time.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    } else {
+                        Button(role: .destructive) {
+                            unlockPurpose = .endBlock
+                        } label: {
+                            Label("End block early", systemImage: "lock.open")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
 
-                    Text("Ending early takes your password \(session.unlockEntries) times in a row.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        Text("Ending early takes your password \(session.unlockEntries) times in a row.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.horizontal, 24)

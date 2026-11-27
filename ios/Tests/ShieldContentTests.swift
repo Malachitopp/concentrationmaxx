@@ -13,9 +13,9 @@ final class ShieldContentTests: XCTestCase {
         calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute))!
     }
 
-    private func session(endingAt end: Date, messaging: Bool = false, entries: Int = 3) -> BlockSession {
+    private func session(endingAt end: Date, messaging: Bool = false, serious: Bool = false, entries: Int = 3) -> BlockSession {
         BlockSession(id: UUID(), start: end.addingTimeInterval(-3600), end: end,
-                     messagingBlocked: messaging, strictMode: true, unlockEntries: entries)
+                     messagingBlocked: messaging, strictMode: true, seriousMode: serious, unlockEntries: entries)
     }
 
     private func text(_ session: BlockSession?, group: ShieldContent.Group = .social, name: String? = "Instagram", now: Date) -> ShieldText {
@@ -28,6 +28,26 @@ final class ShieldContentTests: XCTestCase {
         XCTAssertTrue(shield.subtitle.contains("Instagram"))
         XCTAssertTrue(shield.subtitle.contains("3 times"))
         XCTAssertEqual(shield.primaryButton, "Close")
+    }
+
+    func testSeriousBlockOffersNoWayOut() {
+        let shield = text(session(endingAt: date(23, 17, 30), serious: true), now: date(23, 16, 45))
+        XCTAssertEqual(shield.title, "Blocked until 17:30")
+        XCTAssertTrue(shield.subtitle.contains("Instagram"))
+        XCTAssertTrue(shield.subtitle.contains("cannot be ended early"))
+        XCTAssertFalse(shield.subtitle.contains("password"))
+        XCTAssertEqual(shield.primaryButton, "Close")
+    }
+
+    func testSeriousBlockStillOffersTheMessagingUnblockAndEndsOnTime() {
+        let running = session(endingAt: date(23, 17, 30), messaging: true, serious: true)
+        let messaging = text(running, group: .messaging, now: date(23, 17, 0))
+        XCTAssertEqual(messaging.title, "Messaging blocked until 17:30")
+        XCTAssertTrue(messaging.subtitle.contains("once"))
+
+        let over = text(running, now: date(23, 17, 31))
+        XCTAssertEqual(over.title, "Your block is over")
+        XCTAssertEqual(over.primaryButton, "Unblock")
     }
 
     func testEndTomorrowAndLater() {

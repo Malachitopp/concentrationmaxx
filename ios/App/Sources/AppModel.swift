@@ -169,8 +169,10 @@ final class AppModel: ObservableObject {
                                   reelsFreeAvailable: Self.reelsFreeAvailable)
     }
 
+    /// `seriousMode` starts a block that cannot be ended early. The home screen asks
+    /// the person to confirm before it passes true.
     @discardableResult
-    func startBlock(minutes: Int, blockMessaging: Bool) -> Bool {
+    func startBlock(minutes: Int, blockMessaging: Bool, seriousMode: Bool = false) -> Bool {
         guard let engine else {
             show(error: storageProblem ?? "Shared storage is unavailable.")
             return false
@@ -181,11 +183,13 @@ final class AppModel: ObservableObject {
         }
         settings.lastDurationMinutes = minutes
         settings.blockMessaging = blockMessaging
+        settings.seriousMode = seriousMode
         do {
             let outcome = try engine.start(duration: TimeInterval(minutes) * 60,
                                            plan: currentPlan(),
                                            blockMessaging: blockMessaging,
                                            strictMode: strictMode,
+                                           seriousMode: seriousMode,
                                            unlockEntries: unlockEntries)
             session = outcome.session
             sessionProblem = nil
@@ -209,7 +213,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Ends the block. The caller has already taken the password entries.
+    /// Ends the block. The caller has already taken the password entries. A serious
+    /// block is refused by the engine and stays in place.
     func endBlockEarly() {
         guard let engine else { return }
         do {
@@ -217,6 +222,13 @@ final class AppModel: ObservableObject {
             session = nil
             sessionProblem = nil
             banner = Banner(kind: .info, message: "Block ended early.")
+        } catch BlockError.cannotEndSeriousBlock {
+            // Reached from the damaged-block screen when the record became readable
+            // again and turned out to be serious: show the running block.
+            appBecameActive()
+            if isBlockRunning {
+                show(error: BlockError.cannotEndSeriousBlock)
+            }
         } catch {
             show(error: "The block could not be ended: \(error.localizedDescription)")
         }

@@ -22,8 +22,8 @@ final class BlockEngineTests: XCTestCase {
     }
 
     @discardableResult
-    private func startHour(messaging: Bool = true, strict: Bool = true, plan: ShieldPlan = .testPlan()) throws -> BlockSession {
-        try engine.start(duration: 3600, plan: plan, blockMessaging: messaging, strictMode: strict, unlockEntries: 3).session
+    private func startHour(messaging: Bool = true, strict: Bool = true, serious: Bool = false, plan: ShieldPlan = .testPlan()) throws -> BlockSession {
+        try engine.start(duration: 3600, plan: plan, blockMessaging: messaging, strictMode: strict, seriousMode: serious, unlockEntries: 3).session
     }
 
     // MARK: Starting
@@ -146,6 +146,81 @@ final class BlockEngineTests: XCTestCase {
         XCTAssertEqual(shields.calls, [.clearAll])
         XCTAssertEqual(scheduler.cancelCount, 1)
         XCTAssertEqual(notifier.cancelCount, 1)
+    }
+
+    // MARK: Serious mode
+
+    func testSeriousBlockIsRecordedAndAlwaysStrict() throws {
+        let session = try startHour(strict: false, serious: true)
+        XCTAssertTrue(session.seriousMode)
+        XCTAssertTrue(session.strictMode)
+        XCTAssertEqual(shields.calls.last, .applyStrict(true))
+        XCTAssertEqual(sessions.session, session)
+
+        setUp()
+        XCTAssertFalse(try startHour().seriousMode)
+    }
+
+    func testSeriousBlockCannotBeEndedEarly() throws {
+        let session = try startHour(serious: true)
+        shields.reset()
+        now = session.end.addingTimeInterval(-1)
+        XCTAssertThrowsError(try engine.endNow(source: .endedEarly)) {
+            XCTAssertEqual($0 as? BlockError, .cannotEndSeriousBlock)
+        }
+        XCTAssertEqual(sessions.session, session)
+        XCTAssertTrue(shields.calls.isEmpty)
+        XCTAssertEqual(scheduler.cancelCount, 0)
+        XCTAssertEqual(notifier.cancelCount, 0)
+    }
+
+    func testSeriousBlockStillEndsOnTimeThroughEveryEndPath() throws {
+        for source in [EndSource.monitor, .app, .shieldAction] {
+            setUp()
+            let session = try startHour(serious: true)
+            shields.reset()
+            now = session.end.addingTimeInterval(-120)
+            XCTAssertEqual(engine.endIfExpired(source: source), .running(session), "\(source)")
+            XCTAssertTrue(shields.calls.isEmpty, "\(source)")
+            now = session.end
+            XCTAssertEqual(engine.endIfExpired(source: source), .ended(session), "\(source)")
+            XCTAssertEqual(shields.calls, [.clearAll], "\(source)")
+            XCTAssertNil(sessions.session, "\(source)")
+        }
+    }
+
+    func testSeriousBlockCanBeExtendedAndStaysSerious() throws {
+        let session = try startHour(serious: true)
+        let extended = try engine.extend(byMinutes: 30).session
+        XCTAssertEqual(extended.end, session.end.addingTimeInterval(1800))
+        XCTAssertTrue(extended.seriousMode)
+        XCTAssertThrowsError(try engine.endNow(source: .endedEarly))
+    }
+
+    func testSeriousBlockStillAllowsUnblockingMessaging() throws {
+        try startHour(messaging: true, serious: true)
+        shields.reset()
+        let updated = try engine.unblockMessaging()
+        XCTAssertFalse(updated.messagingBlocked)
+        XCTAssertTrue(updated.seriousMode)
+        XCTAssertEqual(shields.calls, [.clearMessaging])
+    }
+
+    func testReconcileKeepsASeriousBlockStrict() throws {
+        let session = try startHour(strict: false, serious: true)
+        shields.reset()
+        XCTAssertEqual(engine.reconcile(plan: .testPlan()), .running(session))
+        XCTAssertEqual(shields.calls.last, .applyStrict(true))
+    }
+
+    func testAnUnreadableRecordCanStillBeEndedWithThePassword() throws {
+        // The damaged-block screen: the end time is unknown, so refusing here would
+        // leave the phone blocked for good.
+        try startHour(serious: true)
+        shields.reset()
+        sessions.loadError = TestError(message: "corrupt")
+        XCTAssertNoThrow(try engine.endNow(source: .endedEarly))
+        XCTAssertEqual(shields.calls, [.clearAll])
     }
 
     func testEndIfExpiredLeavesARunningBlockAlone() throws {

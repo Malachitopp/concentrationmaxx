@@ -80,6 +80,41 @@ final class BlockSessionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(block.end.timeIntervalSince(block.start), BlockRules.minimumDuration)
     }
 
+    func testSeriousModeIsOffUnlessAskedForAndForcesStrictMode() throws {
+        let ordinary = try BlockSession.make(now: referenceNow, duration: 900, messagingBlocked: false, strictMode: false, unlockEntries: 3)
+        XCTAssertFalse(ordinary.seriousMode)
+        XCTAssertFalse(ordinary.strictMode)
+
+        let serious = try BlockSession.make(now: referenceNow, duration: 900, messagingBlocked: false, strictMode: false, seriousMode: true, unlockEntries: 3)
+        XCTAssertTrue(serious.seriousMode)
+        XCTAssertTrue(serious.strictMode)
+        XCTAssertTrue(try serious.extended(by: 900, now: referenceNow).seriousMode)
+    }
+
+    func testSeriousRecordRoundTripsThroughJSON() throws {
+        let block = try BlockSession.make(now: referenceNow, duration: 3600, messagingBlocked: true, strictMode: true, seriousMode: true, unlockEntries: 3)
+        let decoded = try JSONDecoder().decode(BlockSession.self, from: JSONEncoder().encode(block))
+        XCTAssertEqual(decoded, block)
+        XCTAssertTrue(decoded.seriousMode)
+    }
+
+    func testRecordWrittenBeforeSeriousModeIsReadAsAnOrdinaryBlock() throws {
+        // What the previous build saved: no "seriousMode" key. Dates are seconds since
+        // 2001-01-01, JSONEncoder's default.
+        let start = referenceNow.timeIntervalSinceReferenceDate
+        let json = """
+        {"id":"3F2504E0-4F89-41D3-9A0C-0305E82C3301","start":\(Int(start)),"end":\(Int(start) + 3600),\
+        "messagingBlocked":true,"strictMode":false,"unlockEntries":4}
+        """
+        let decoded = try JSONDecoder().decode(BlockSession.self, from: Data(json.utf8))
+        XCTAssertFalse(decoded.seriousMode)
+        XCTAssertEqual(decoded.start, referenceNow)
+        XCTAssertEqual(decoded.end, referenceNow.addingTimeInterval(3600))
+        XCTAssertTrue(decoded.messagingBlocked)
+        XCTAssertFalse(decoded.strictMode)
+        XCTAssertEqual(decoded.unlockEntries, 4)
+    }
+
     func testRecordRoundTripsThroughJSON() throws {
         let block = try BlockSession.make(now: referenceNow.addingTimeInterval(0.25), duration: 3600, messagingBlocked: true, strictMode: false, unlockEntries: 4)
         let decoded = try JSONDecoder().decode(BlockSession.self, from: JSONEncoder().encode(block))
