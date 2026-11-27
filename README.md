@@ -130,7 +130,9 @@ Koyeb, often suggested for this, stopped offering a free plan to new accounts in
 
 1. GitHub → the repo → **Actions** → **testflight** → **Run workflow**.
 2. Leave **mode** on `testflight` and **Include Reels-free Instagram** ticked, then **Run workflow**.
-3. It takes about 15 to 25 minutes: build, sign, check the entitlements, upload, then wait for Apple's processing. The build number is the run number.
+3. It takes about 15 to 25 minutes: build, sign, check the entitlements, upload, wait for Apple's processing, then add the build to your internal testing groups. The build number is the run number.
+
+The last step belongs to the box that starts **Then add the build to the internal testing groups**, ticked by default. It is what makes a new build show up in the TestFlight app on your iPhone without a visit to App Store Connect. It only touches internal groups (people on your developer team); external groups are never changed, because they go through Apple's beta review. If it cannot add the build, the run still succeeds and the step says what to do by hand.
 
 How signing works, so the log makes sense: the archive is built unsigned and signed ad hoc with its entitlements; the export then re-signs it with an Apple-managed distribution certificate and App Store profiles that Xcode creates through the API key. No certificate or profile is stored anywhere, and no Mac or registered device is needed.
 
@@ -138,7 +140,7 @@ How signing works, so the log makes sense: the archive is built unsigned and sig
 
 1. Install **TestFlight** from the App Store on your iPhone, signed in with the Apple ID of your developer account.
 2. <https://appstoreconnect.apple.com> → **Apps** → ConcentrationMaxx → **TestFlight**. The build appears under iOS builds; once processing is done it may show a yellow warning until it has been added to a group.
-3. Under **Internal Testing**, create a group (for example "Me"), add yourself and add the build. You get an email and the build appears in the TestFlight app.
+3. Under **Internal Testing**, create a group (for example "Me"), add yourself and add the build. You get an email and the build appears in the TestFlight app. This is needed once: later runs of the workflow add each new build to the group themselves (section 3.1), and the TestFlight app installs it if **Automatic Updates** is on for ConcentrationMaxx there (it is by default); otherwise tap **Update**.
 
 Export compliance is answered by the app itself (`ITSAppUsesNonExemptEncryption = NO`: it only uses HTTPS and standard password hashing), so builds do not stop at "Missing Compliance".
 

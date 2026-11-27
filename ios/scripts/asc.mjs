@@ -4,6 +4,10 @@
 //       Fails fast, before the long build, if the API key is not accepted.
 //   node ios/scripts/asc.mjs wait-build <bundle id> <version> <build>
 //       Waits until App Store Connect has processed an uploaded build.
+//   node ios/scripts/asc.mjs distribute-internal <bundle id> <version> <build>
+//       Makes sure a processed build is in the app's internal testing groups, so it
+//       shows up in the testers' TestFlight app. Never touches external groups: those
+//       go through Apple's beta review and are submitted by hand.
 //
 // Needs ASC_KEY_PATH (the .p8 file), ASC_KEY_ID and ASC_ISSUER_ID in the environment.
 // Prints no key material and no account details.
@@ -32,15 +36,22 @@ function token() {
   return `${unsigned}.${signature.toString("base64url")}`;
 }
 
-async function api(path) {
+// GET by default. With `body`, sends it as JSON with `method` (POST unless given).
+async function api(path, { method, body } = {}) {
+  const verb = method ?? (body ? "POST" : "GET");
+  const headers = { authorization: `Bearer ${token()}` };
+  if (body) headers["content-type"] = "application/json";
   const response = await fetch(`https://api.appstoreconnect.apple.com${path}`, {
-    headers: { authorization: `Bearer ${token()}` },
+    method: verb,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {
-    const body = (await response.text()).slice(0, 400);
-    throw new Error(`GET ${path.split("?")[0]} answered HTTP ${response.status}: ${body}`);
+    const text = (await response.text()).slice(0, 400);
+    throw new Error(`${verb} ${path.split("?")[0]} answered HTTP ${response.status}: ${text}`);
   }
-  return response.json();
+  // Relationship changes answer 204 with no body.
+  return response.status === 204 ? null : response.json();
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,7 +111,71 @@ if (command === "check-key") {
     }
     await sleep(30 * 1000);
   }
+} else if (command === "distribute-internal") {
+  const [bundleId, version, build] = args;
+  if (!bundleId || !version || !build) {
+    console.error("usage: node asc.mjs distribute-internal <bundle id> <version> <build>");
+    process.exit(2);
+  }
+  try {
+    const appId = await findApp(bundleId);
+    const builds = await api(`/v1/builds?filter[app]=${appId}&filter[version]=${encodeURIComponent(build)}` +
+      `&filter[preReleaseVersion.version]=${encodeURIComponent(version)}&fields[builds]=version,processingState`);
+    const uploaded = builds.data[0];
+    if (!uploaded) {
+      console.error(`::error::App Store Connect does not list ${version} (${build}), so it cannot be given to testers.`);
+      process.exit(1);
+    }
+    if (uploaded.attributes?.processingState !== "VALID") {
+      console.log(`::warning::${version} (${build}) is still ${uploaded.attributes?.processingState}. Add it to your testing group in App Store Connect → TestFlight once Apple has processed it.`);
+      process.exit(0);
+    }
+
+    // No field list here: the attributes are read defensively instead, so a renamed
+    // attribute cannot turn the request into an error.
+    const groups = (await api(`/v1/betaGroups?filter[app]=${appId}&limit=200`)).data
+      .filter((group) => group.attributes?.isInternalGroup === true);
+    if (groups.length === 0) {
+      console.log("::warning::This app has no internal testing group yet, so nobody receives the build. Create one in App Store Connect → TestFlight → Internal Testing (README section 3.2).");
+      process.exit(0);
+    }
+
+    // Groups are numbered, not named: this log is public and group names are the owner's.
+    let delivered = 0;
+    for (const [index, group] of groups.entries()) {
+      const label = `Internal testing group ${index + 1} of ${groups.length}`;
+      try {
+        if (group.attributes?.hasAccessToAllBuilds === true) {
+          console.log(`${label}: receives every build automatically.`);
+          delivered += 1;
+          continue;
+        }
+        const listed = await api(`/v1/betaGroups/${group.id}/builds?limit=200&fields[builds]=version`);
+        if (listed.data.some((item) => item.id === uploaded.id)) {
+          console.log(`${label}: already has ${version} (${build}).`);
+          delivered += 1;
+          continue;
+        }
+        await api(`/v1/betaGroups/${group.id}/relationships/builds`, {
+          body: { data: [{ type: "builds", id: uploaded.id }] },
+        });
+        console.log(`${label}: ${version} (${build}) added.`);
+        delivered += 1;
+      } catch (error) {
+        console.log(`::warning::${label}: the build could not be added (${error.message}). Add it in App Store Connect → TestFlight.`);
+      }
+    }
+    if (delivered === 0) {
+      console.error(`::error::${version} (${build}) is uploaded and processed, but it is in no internal testing group. Add it in App Store Connect → TestFlight.`);
+      process.exit(1);
+    }
+    console.log(`${version} (${build}) is available to ${delivered} of ${groups.length} internal testing group(s). It appears in the testers' TestFlight app within a few minutes.`);
+  } catch (error) {
+    // The upload itself is done by now; only handing the build to testers failed.
+    console.error(`::error::The build could not be given to the internal testers: ${error.message}. Add it in App Store Connect → TestFlight.`);
+    process.exit(1);
+  }
 } else {
-  console.error("usage: node asc.mjs check-key | wait-build <bundle id> <version> <build>");
+  console.error("usage: node asc.mjs check-key | wait-build <bundle id> <version> <build> | distribute-internal <bundle id> <version> <build>");
   process.exit(2);
 }

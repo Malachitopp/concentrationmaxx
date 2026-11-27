@@ -34,6 +34,10 @@ on:
         description: "Wait until App Store Connect has processed the upload (testflight mode)"
         type: boolean
         default: true
+      distribute_internal:
+        description: "Then add the build to the internal testing groups, so it reaches the testers' TestFlight app (needs the wait above; external groups are never touched)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -245,6 +249,23 @@ jobs:
         run: |
           node ios/scripts/asc.mjs wait-build "$BUNDLE_ID" "$MARKETING_VERSION" "$BUILD"
           echo "ConcentrationMaxx $MARKETING_VERSION ($BUILD) is in App Store Connect → TestFlight." >> "$GITHUB_STEP_SUMMARY"
+
+      # Internal testers only get a build once it is in their group. A group made with
+      # "automatic distribution" gets every build by itself; any other internal group
+      # gets it here. A failure here does not undo the upload, so it does not fail the
+      # run: the step's own messages say what is left to do by hand.
+      - name: Give the build to the internal testers
+        if: inputs.mode == 'testflight' && inputs.wait_for_processing && inputs.distribute_internal
+        continue-on-error: true
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -o pipefail
+          node ios/scripts/asc.mjs distribute-internal "$BUNDLE_ID" "$MARKETING_VERSION" "$BUILD" | tee -a "$RUNNER_TEMP/distribute.log"
+          # The last line says where the build ended up; drop a "::warning::" prefix.
+          tail -n 1 "$RUNNER_TEMP/distribute.log" | sed 's/^::[a-z]*:://' >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- Development .ipa ----------
       # Needs "Family Controls (Development)" on the four App IDs and at least one
